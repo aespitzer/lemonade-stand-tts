@@ -186,7 +186,7 @@ function __objrest(o, omit) local parts = {}; local skip = {}; for _, k in ipair
   for _, k in ipairs(keys(o)) do if not skip[k] then out[k] = o[k]; if type(k) == 'string' then ks[#ks + 1] = k end end end
   ORD[out] = ks; return out end
 function __pack(...) local n = select('#', ...); local t = { ... }; local out = { __n = n }; for i = 1, n do out[i - 1] = t[i] end return mkA(out) end
-function __unpack(a) a = toArr(a); if a.__n == 0 then return end return unpack_(a, 0, a.__n - 1) end
+function __unpack(a) a = toArr(a); local n = a.__n; if n == 0 then return end local t = {}; for i = 0, n - 1 do t[i + 1] = a[i] end return unpack_(t, 1, n) end -- MoonSharp's unpack misreads lists that start at 0
 
 -- array methods (callbacks get value, index, array)
 local A = {}
