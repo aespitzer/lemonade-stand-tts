@@ -86,7 +86,7 @@ function mat(color, ci) {
   </div>`;
   return { name: 'mat-' + ci, html, w: W, h: H };
 }
-function felt() { return { name: 'felt', html: `<div class="b" style="width:2100px;height:1500px;background:radial-gradient(ellipse at 50% 45%,#1f5a50,#123a33 70%,#0c2924)"></div>`, w: 84, h: 60, scale: 0.25 }; }
+function felt() { return { name: 'felt', html: `<div class="b" style="width:1950px;height:1650px;background:radial-gradient(ellipse at 50% 45%,#1f5a50,#123a33 70%,#0c2924)"></div>`, w: 78, h: 66 }; }
 
 (async () => {
   const b = await chromium.launch(); const page = await b.newPage({ viewport: { width: 4400, height: 4000 } });
@@ -98,6 +98,10 @@ function felt() { return { name: 'felt', html: `<div class="b" style="width:2100
     (L.files = L.files || {})[it.name] = { file: it.name + '.png', w: it.w, h: it.h };
     console.log(it.name, it.w + 'x' + it.h);
   }
+  // the shared board and the mats are drawn at 100 px a unit but laid on the table 30% larger, so cards there read well
+  const F = 1.3, grow = b => { b.w *= F; b.h *= F; for (const k in b.slots) b.slots[k] = b.slots[k].map(v => +(v * F).toFixed(3)); };
+  grow(L.common); grow(L.mat);
+  for (const k of ['board-common', 'mat-0', 'mat-1', 'mat-2', 'mat-3']) { L.files[k].w *= F; L.files[k].h *= F; }
   fs.writeFileSync(path.join(OUT, '..', 'layout.json'), JSON.stringify(L, null, 1));
   await b.close();
 })();

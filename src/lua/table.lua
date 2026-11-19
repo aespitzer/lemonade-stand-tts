@@ -6,16 +6,19 @@
     log    the table is the truth: nothing is checked; every move is written down.
   Every mode keeps a record you can copy from the Notebook (Sour Empire record tab). ]]
 
-local VERSION = 'tts-1'
+local VERSION = 'tts-2'
 local SEATCOL = { 'Red', 'Blue', 'Green' }
 local RGB = { Red = { 0.85, 0.28, 0.23 }, Blue = { 0.18, 0.47, 0.82 }, Green = { 0.18, 0.62, 0.36 } }
-local CARD_W, CARD_H = 2.14, 3.05 -- a Tabletop Simulator card at scale 1
+local CARD_W, CARD_H = 2.14, 3.05 -- a card at scale 1; measured at setup (Tabletop Simulator does not document it)
+local FACE = 180                  -- a card or tile at turn 0 shows its top edge to the south seat; turn it to face that player
+local CS = 1                      -- the scale that fits a card in a board slot, worked out from the measured card
 local Y = 1.12                    -- height of the board surfaces
 
 S = S or nil -- the saved state
 local objs = {}   -- key -> object we spawned
 local want = {}   -- key -> what should be on the table now
 local ui = { impMode = false }
+local btnLast = {} -- object key -> the button label it carries
 local busy = false
 
 --[[ ---------- values: the engine's arrays are 0-based with their length in __n ---------- ]]
@@ -91,10 +94,10 @@ end
 -- each board: centre (x, z), size (w, h) in table units, turn (degrees about y)
 local BOARD = {}
 local function placeBoards(n)
-  BOARD.felt = { x = 0, z = 2.5, w = LAYOUT.files.felt.w, h = LAYOUT.files.felt.h, rot = 0, file = 'felt' }
-  BOARD.common = { x = 0, z = 19.4, w = LAYOUT.common.w, h = LAYOUT.common.h, rot = 0, file = 'board-common', L = LAYOUT.common }
+  BOARD.felt = { x = 0, z = -1, w = LAYOUT.files.felt.w, h = LAYOUT.files.felt.h, rot = 0, file = 'felt' }
+  BOARD.common = { x = 0, z = 19.7, w = LAYOUT.common.w, h = LAYOUT.common.h, rot = 0, file = 'board-common', L = LAYOUT.common }
   local M = LAYOUT['map' .. n]; BOARD.map = { x = 0, z = 0, w = M.w, h = M.h, rot = 0, file = 'board-map' .. n, L = M }
-  local spots = { { 0, -15.9, 0 }, { -25.1, 0, 90 }, { 25.1, 0, 270 } }
+  local spots = { { 0, -17.2, 0 }, { -27.6, -8.6, 90 }, { 27.6, -8.6, 270 } }
   for pi = 0, n - 1 do local s = spots[pi + 1]; BOARD['mat' .. pi] = { x = s[1], z = s[2], w = LAYOUT.mat.w, h = LAYOUT.mat.h, rot = s[3], file = 'mat-' .. pi, L = LAYOUT.mat } end
 end
 -- a point on a board, in board units from its top-left corner, to the table
@@ -132,7 +135,7 @@ local function customDeck(c)
   local sh = c.sh
   return { [c.id] = { FaceURL = IMG .. sh.file, BackURL = IMG .. (sh.back or sh.file), NumWidth = sh.cols, NumHeight = sh.rows, BackIsHidden = true, UniqueBack = sh.uniqueBack or false, Type = 0 } }
 end
-local function tf(p, roty, sc, flip) return { posX = p.x, posY = p.y, posZ = p.z, rotX = 0, rotY = roty or 0, rotZ = flip and 180 or 0, scaleX = sc[1], scaleY = 1, scaleZ = sc[2] } end
+local function tf(p, roty, sc, flip) return { posX = p.x, posY = p.y, posZ = p.z, rotX = 0, rotY = (roty or 0) + FACE, rotZ = flip and 180 or 0, scaleX = sc[1], scaleY = 1, scaleZ = sc[2] } end
 local function cardData(key, cardKey, p, roty, sc, flip, locked)
   local c = CARDS[cardKey]; if not c then error('no card ' .. tostring(cardKey)) end
   return { Name = 'CardCustom', Transform = tf(p, roty, sc, flip), CardID = c.id * 100 + c.cell, CustomDeck = customDeck(c), GMNotes = 'se|' .. key, Nickname = '', Locked = locked ~= false, Hands = true, SidewaysCard = false }
@@ -142,7 +145,7 @@ local function spawnFrom(key, data, after)
   objs[key] = o; return o
 end
 local function card(key, cardKey, p, opt) opt = opt or {}
-  want[key] = { kind = 'card', card = cardKey, p = p, rot = opt.rot or 0, sc = opt.sc or { 1, 1 }, flip = opt.flip, hand = opt.hand, tap = opt.tap, label = opt.label } end
+  want[key] = { kind = 'card', card = cardKey, p = p, rot = opt.rot or 0, sc = opt.sc or { CS, CS }, flip = opt.flip, hand = opt.hand, tap = opt.tap, label = opt.label } end
 local function chip(key, col, p, sc) want[key] = { kind = 'chip', col = col, p = p, sc = sc or 0.55 } end
 local function pawn(key, col, p) want[key] = { kind = 'pawn', col = col, p = p } end
 local function text(key, s, p, rot, size, col) want[key] = { kind = 'text', s = s, p = p, rot = rot or 0, size = size or 40, col = col } end
@@ -157,7 +160,7 @@ local function spawnWanted(key, w)
   elseif w.kind == 'pawn' then
     return spawnFrom(key, { Name = 'PlayerPawn', Transform = tf(w.p, 0, { 0.45, 0.45 }), ColorDiffuse = colorOf(w.col), GMNotes = 'se|' .. key, Locked = true })
   elseif w.kind == 'text' then
-    return spawnFrom(key, { Name = '3DText', Transform = { posX = w.p.x, posY = w.p.y + 0.05, posZ = w.p.z, rotX = 90, rotY = w.rot, rotZ = 0, scaleX = 1, scaleY = 1, scaleZ = 1 },
+    return spawnFrom(key, { Name = '3DText', Transform = { posX = w.p.x, posY = w.p.y + 0.05, posZ = w.p.z, rotX = 90, rotY = w.rot or 0, rotZ = 0, scaleX = 1, scaleY = 1, scaleZ = 1 },
       Text = { Text = w.s, fontSize = w.size, colorstate = w.col and colorOf(w.col) or { r = 0.17, g = 0.1, b = 0.08 } }, GMNotes = 'se|' .. key, Locked = true },
       function(obj) obj.interactable = false end)
   end
@@ -177,25 +180,47 @@ local function apply()
       if w.kind == 'text' and last[key] and last[key].s ~= w.s and last[key].kind == 'text' and math.abs(last[key].p.x - w.p.x) < 0.01 then o.TextTool.setValue(w.s)
       elseif w.kind == 'card' and last[key] and (last[key].card ~= w.card or last[key].hand ~= w.hand) then o.destruct(); objs[key] = nil; spawnWanted(key, w)
       elseif w.kind == 'card' and w.hand then -- hand cards stay where the hand puts them
-      else o.setPositionSmooth({ w.p.x, w.p.y, w.p.z }, false, true); if w.kind == 'card' then o.setRotationSmooth({ 0, (w.rot or 0) + (w.tap and 90 or 0), w.flip and 180 or 0 }, false, true) end end
+      else o.setPositionSmooth({ w.p.x, w.p.y, w.p.z }, false, true); if w.kind == 'card' then o.setRotationSmooth({ 0, (w.rot or 0) + FACE + (w.tap and 90 or 0), w.flip and 180 or 0 }, false, true) end end
       last[key] = w
     end
   end
 end
 local function clearAll() for key, o in pairs(objs) do if alive(o) then o.destruct() end end objs = {}; want = {}; last = {} end
-local function boardsUp(n)
+local function loaded(o) local okk, r = pcall(function() return (not o.spawning) and (not o.loading_custom) end); return (not okk) or r end
+-- measure a card once, so slots, tiles and tokens come out the size and shape they were drawn
+local function calibrate(after)
+  if S.cardW then CARD_W, CARD_H = S.cardW, S.cardH; CS = math.min(0.95 * BOARD.common.L.slots.mkt0[3] / CARD_W, 0.95 * BOARD.common.L.slots.mkt0[4] / CARD_H); return after() end
+  local o = spawnObjectData({ data = cardData('probe', 'mach:hands', { x = 0, y = 30, z = 0 }, 0, { 1, 1 }, false, true) })
+  Wait.condition(function()
+    local okk, b = pcall(function() return o.getBoundsNormalized() end)
+    if okk and b and b.size and b.size.x > 0.5 and b.size.z > 0.5 then CARD_W, CARD_H = b.size.x, b.size.z end
+    S.cardW, S.cardH = CARD_W, CARD_H
+    CS = math.min(0.95 * BOARD.common.L.slots.mkt0[3] / CARD_W, 0.95 * BOARD.common.L.slots.mkt0[4] / CARD_H)
+    if alive(o) then o.destruct() end
+    after()
+  end, function() return loaded(o) end, 15, function() if alive(o) then o.destruct() end; after() end)
+end
+local function boardsUp(n, after)
   placeBoards(n)
+  local pending = 0
+  local function done() pending = pending - 1; if pending == 0 and after then after() end end
   for _, b in ipairs({ 'felt', 'common', 'map', 'mat0', 'mat1', 'mat2' }) do local B = BOARD[b]
-    if B and not objs['board:' .. b] then
-      local p = { x = B.x, y = (b == 'felt') and 0.9 or 1.0, z = B.z }
-      objs['board:' .. b] = spawnObjectData({ data = { Name = 'Custom_Tile', Transform = tf(p, B.rot, { 1, 1 }), Locked = true, GMNotes = 'se|board:' .. b,
-        CustomImage = { ImageURL = IMG .. B.file .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 0, Thickness = 0.1, Stackable = false, Stretch = true } } },
-        callback_function = function(o) local bd = o.getBoundsNormalized(); local sz = bd.size
-          local wx = (B.rot % 180 == 0) and sz.x or sz.z
-          if wx and wx > 0 then local k = B.w / wx; o.setScale({ k, 1, k }) end
-          o.interactable = (b ~= 'felt') and false or false end })
+    if B and not alive(objs['board:' .. b]) then
+      pending = pending + 1
+      local p = { x = B.x, y = (b == 'felt') and 0.8 or 1.0, z = B.z }
+      local o = spawnObjectData({ data = { Name = 'Custom_Tile', Transform = tf(p, B.rot, { 1, 1 }), Locked = true, GMNotes = 'se|board:' .. b,
+        CustomImage = { ImageURL = IMG .. B.file .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 0, Thickness = (b == 'felt') and 0.4 or 0.1, Stackable = false, Stretch = true } } } })
+      objs['board:' .. b] = o
+      Wait.condition(function()
+        local okk, bd = pcall(function() return o.getBoundsNormalized() end)
+        if okk and bd and bd.size then local wx = (B.rot % 180 == 0) and bd.size.x or bd.size.z
+          if wx and wx > 0.01 then local k = B.w / wx; o.setScale({ k, 1, k }) end end
+        o.setPosition({ p.x, p.y, p.z }); o.interactable = false
+        done()
+      end, function() return loaded(o) end, 20, function() done() end)
     end
   end
+  if pending == 0 and after then after() end
 end
 
 --[[ ---------- full mode: the engine's game state onto the table ---------- ]]
@@ -224,21 +249,21 @@ local function buildWant()
   end
   -- the common board
   for i, m in each(G.mkt) do card('mkt:' .. i, 'mach:' .. m.id, slot('common', 'mkt' .. i)) end
-  card('deck:mach', 'mach:hands', slot('common', 'mdeck'), { flip = true }); text('n:mdeck', alen(G.mdeck) .. ' left', slot('common', 'mdeck', 0, 2.0), 0, 30)
-  card('deck:ing', 'ing:sour:Lemon', slot('common', 'ideck'), { flip = true }); text('n:ideck', alen(G.deck) .. ' cards', slot('common', 'ideck', 0, 2.0), 0, 30)
+  card('deck:mach', 'mach:hands', slot('common', 'mdeck'), { flip = true }); text('n:mdeck', alen(G.mdeck) .. ' left', slot('common', 'mdeck', 0, 2.65), 0, 34)
+  card('deck:ing', 'ing:sour:Lemon', slot('common', 'ideck'), { flip = true }); text('n:ideck', alen(G.deck) .. ' cards', slot('common', 'ideck', 0, 2.65), 0, 34)
   for _, f in ipairs(FAMS) do local pile = G.piles[f]; local np = alen(pile)
     if np > 0 then local top = pile[np - 1]; card('pile:' .. f, 'ing:' .. f .. ':' .. top.n, slot('common', 'pile_' .. f)) end
-    text('n:pile:' .. f, np .. ' in pile', slot('common', 'pile_' .. f, 0, 2.0), 0, 30) end
+    text('n:pile:' .. f, np .. ' in pile', slot('common', 'pile_' .. f, 0, 2.65), 0, 34) end
   if G.choice then for i, c in each(G.choice.cards) do if not c.taken then card('choice:' .. i, 'ing:' .. c.f .. ':' .. c.n, slot('common', 'choice' .. i)) end end end
   for i = 0, alen(G.rrow) - 1 do local c = G.rrow[i]; if c then card('rrow:' .. i, 'res:' .. c.id, slot('common', 'rrow' .. i), { flip = true }) end end
   if alen(G.rdeck) > 0 then card('deck:res', 'adv:' .. E.ADVISORS[0].id, slot('common', 'rdeck'), { flip = true }) end
-  text('n:rdeck', alen(G.rdeck) .. ' left', slot('common', 'rdeck', 0, 2.0), 0, 30)
+  text('n:rdeck', alen(G.rdeck) .. ' left', slot('common', 'rdeck', 0, 2.65), 0, 34)
   for i, a in each(G.arow) do card('arow:' .. i, 'adv:' .. a.id, slot('common', 'arow' .. i)) end
   if G.offer then card('offer', 'adv:' .. G.offer.a.id, slot('common', 'memoplay', 0, 0, 0.4)) end
   if alen(G.ideck) > 0 then card('deck:inf', 'inf:recall:0', slot('common', 'infdeck'), { flip = true }) end
-  text('n:infdeck', alen(G.ideck) .. ' left', slot('common', 'infdeck', 0, 2.0), 0, 30)
+  text('n:infdeck', alen(G.ideck) .. ' left', slot('common', 'infdeck', 0, 2.65), 0, 34)
   local nd = alen(G.idisc); if nd > 0 then local c = G.idisc[nd - 1]; if c and CARDS['inf:' .. c.t .. ':' .. c.x] then card('infdisc', 'inf:' .. c.t .. ':' .. c.x, slot('common', 'infdisc')) end end
-  card('deck:memo', 'memo:0', slot('common', 'memodeck'), { flip = true }); text('n:memo', (alen(E.MEMOS) - (G.memoAt or 0)) .. ' left', slot('common', 'memodeck', 0, 2.0), 0, 30)
+  card('deck:memo', 'memo:0', slot('common', 'memodeck'), { flip = true }); text('n:memo', (alen(E.MEMOS) - (G.memoAt or 0)) .. ' left', slot('common', 'memodeck', 0, 2.65), 0, 34)
   if G.pending then card('memoplay', 'memo:' .. G.pending.id, slot('common', 'memoplay')) end
   pawn('round', { 0.95, 0.82, 0.25 }, slot('common', 'round' .. math.min(G.round, E.MAXROUND)))
   pawn('heat', { 0.89, 0.34, 0.18 }, slot('common', 'heat' .. math.max(0, math.min(G.heat, 8))))
@@ -247,8 +272,8 @@ local function buildWant()
     local fl = 0
     for i, m in each(p.mach) do card('floor:' .. pi .. ':m' .. i, 'mach:' .. m.id, slot(mat, 'floor' .. fl), { rot = B.rot, tap = m.ran }); fl = fl + 1 end
     for i, a in each(p.adv) do card('floor:' .. pi .. ':a' .. i, 'adv:' .. a.id, slot(mat, 'floor' .. fl), { rot = B.rot }); fl = fl + 1 end
-    for i, m in each(p.shelf) do card('shelf:' .. pi .. ':' .. i, 'mach:' .. m.id, slot(mat, 'shelf', -2.9 + i * 0.95, 0, 0.02 * i), { rot = B.rot, sc = { 0.78, 0.78 } }) end
-    for i, t in each(p.tiles) do if CARDS['res:' .. t.id] then card('tiles:' .. pi .. ':' .. i, 'res:' .. t.id, slot(mat, 'tiles', -2.4 + i * 0.95, 0, 0.02 * i), { rot = B.rot, sc = { 0.78, 0.78 } }) end end
+    for i, m in each(p.shelf) do card('shelf:' .. pi .. ':' .. i, 'mach:' .. m.id, slot(mat, 'shelf', -3.6 + i * 1.25, 0, 0.02 * i), { rot = B.rot, sc = { CS * 0.8, CS * 0.8 } }) end
+    for i, t in each(p.tiles) do if CARDS['res:' .. t.id] then card('tiles:' .. pi .. ':' .. i, 'res:' .. t.id, slot(mat, 'tiles', -3.0 + i * 1.0, 0, 0.02 * i), { rot = B.rot, sc = { CS * 0.8, CS * 0.8 } }) end end
     pawn('era:' .. pi, SEATCOL[pi + 1], slot(mat, 'era' .. math.min(p.era, 12)))
     local tl = E.trackLen(p)
     if p.prog > 0 then pawn('prog:' .. pi, SEATCOL[pi + 1], slot(mat, 'trk' .. math.min(p.prog, tl) - 1)) end
@@ -284,62 +309,98 @@ local function costTxt(x) if not x or not x.cost then return '' end local t = {}
   for _, k in ipairs(__keys(x.cost)) do local v = x.cost[k]; if v and v ~= 0 then t[#t + 1] = v .. ({ cash = ' Capital', loy = ' loyalty', cont = ' control', card = ' cards' })[k] or (v .. ' ' .. k) end end
   return #t > 0 and (' (' .. table.concat(t, ', ') .. ')') or '' end
 local btns, dialog = {}, nil
-local function B(id, label, x) if x == nil or ok(x) then btns[#btns + 1] = { id = id, label = label .. costTxt(x) } end end
-local function humanColor(pi) return S.seats[pi + 1].human and SEATCOL[pi + 1] or nil end
+local function B(id, label, x, group) if x == nil or ok(x) then btns[#btns + 1] = { id = id, label = label .. costTxt(x), group = group or 'more' } end end
 local function canAct(color) if not S or not S.G or S.G.winner ~= nil then return false end
   local a = actor(); if not S.seats[a + 1].human then return false end
   return S.anyone or color == SEATCOL[a + 1] end
 
+-- what a card on the table lets the player in turn do when clicked: key -> { label, action id }
+local function cardActions()
+  local out = {}
+  local G = S.G; if G.winner ~= nil then return out end
+  local a = actor(); if not S.seats[a + 1].human then return out end
+  local p = P(a)
+  if G.pending or G.offer or ui.scrapFor or ui.disc or ui.sel then return out end
+  if G.choice then for i, c in each(G.choice.cards) do if not c.taken then out['choice:' .. i] = { 'Keep', 'pick_' .. i } end end return out end
+  if G.phase == 'biz' then
+    if ok(E.canDraw(G)) then out['deck:ing'] = { 'Buy 3, keep 1' .. costTxt(E.canDraw(G)), 'draw' } end
+    for _, f in ipairs(FAMS) do local x = E.canTake(G, f); if ok(x) then out['pile:' .. f] = { 'Buy' .. costTxt(x), 'take_' .. f } end end
+    for i, m in each(G.mkt) do local x = E.canBuy(G, i); if ok(x) then out['mkt:' .. i] = { 'Buy' .. costTxt(x), 'buy_' .. i } end end
+    for k = 0, alen(G.rrow) - 1 do if G.rrow[k] then local x = E.canResearch(G, k); if ok(x) then out['rrow:' .. k] = { 'Research', 'research_' .. k } end end end
+    for k, ad in each(G.arow) do local x = E.canHire(G, k); if ok(x) then out['arow:' .. k] = { 'Hire' .. costTxt(x), 'hire_' .. k } end end
+    for i, m in each(p.mach) do if ok(E.canRun(G, i)) then out['floor:' .. a .. ':m' .. i] = { 'Run', 'run_' .. i } end end
+  elseif G.phase == 'place' then
+    for _, c in each(G.map.cells) do
+      local x = ui.impMode and E.canImprove(G, c.id) or E.canPlace(G, c.id)
+      if ok(x) then out['tile:' .. c.id] = { ui.impMode and 'Invest' or ('Place ' .. ((x.cost and x.cost.loy) or '')), (ui.impMode and 'improve_' or 'place_') .. c.id } end
+    end
+  end
+  return out
+end
+-- put the buttons on the cards, changing only the cards whose button changed
+local function cardButtons()
+  local want2 = (S.mode == 'full' and S.G) and cardActions() or {}
+  for key, o in pairs(objs) do
+    local w = want2[key]; local label = w and w[1] or nil
+    if btnLast[key] ~= label and alive(o) then
+      o.clearButtons()
+      if w then local sc = (last[key] and last[key].sc) or { CS, CS }; local flip = last[key] and last[key].flip
+        o.createButton({ click_function = 'onCardClick', function_owner = Global, label = label, position = { 0, flip and -0.3 or 0.3, 0 }, rotation = flip and { 0, 0, 180 } or { 0, 0, 0 },
+          width = 1500, height = 520, font_size = 230, color = { 0.96, 0.82, 0.25, 0.95 }, hover_color = { 1, 0.9, 0.45, 1 }, font_color = { 0.17, 0.1, 0.08, 1 },
+          scale = { 0.6 / sc[1], 1, 0.6 / sc[2] }, tooltip = label }) end
+      btnLast[key] = label
+    end
+  end
+  for key in pairs(btnLast) do if not objs[key] then btnLast[key] = nil end end
+end
+
+-- the panel: what has no card to click, grouped, and the questions the game asks
 local function buildActions()
   btns, dialog = {}, nil
   local G = S.G; if G.winner ~= nil then return end
   local a = actor(); local p = P(a)
   if not S.seats[a + 1].human then return end
   if G.pending then local m = E.MEMOS[G.pending.id]
-    dialog = 'Memo to ' .. p.name .. ': ' .. m.title .. '\n' .. m.body
-    for i, o in each(m.opts) do local x = E.canChoose(G, i); if ok(x) then B('memo_' .. i, o.label) end end
-    if #btns == 0 then B('memo_-1', 'Read it') end
+    dialog = 'Memo to ' .. p.name .. ': ' .. m.title .. '. ' .. m.body
+    for i, o in each(m.opts) do local x = E.canChoose(G, i); if ok(x) then B('memo_' .. i, o.label, nil, 'answer') end end
+    if #btns == 0 then B('memo_-1', 'Read it', nil, 'answer') end
     return end
-  if G.choice then dialog = 'Keep one of the three cards you turned over.'
-    for i, c in each(G.choice.cards) do if not c.taken then B('pick_' .. i, 'Keep ' .. c.n .. ' (' .. E.FNAME[c.f] .. ')') end end return end
+  if G.choice then dialog = 'Click the card you keep, among the three you turned over.'
+    for i, c in each(G.choice.cards) do if not c.taken then B('pick_' .. i, 'Keep ' .. c.n .. ' (' .. E.FNAME[c.f] .. ')', nil, 'answer') end end return end
   if ui.scrapFor then dialog = 'Your floor is full. Free a slot: a machine goes to your shelf; an advisor leaves.'
-    for i, m in each(p.mach) do B('scrap_' .. i, 'Scrap ' .. m.name) end
-    for i, ad in each(p.adv) do B('scrap_a' .. i, 'Let ' .. ad.name .. ' go') end
-    B('noscrap', 'Cancel'); return end
+    for i, m in each(p.mach) do B('scrap_' .. i, 'Scrap ' .. m.name, nil, 'answer') end
+    for i, ad in each(p.adv) do B('scrap_a' .. i, 'Let ' .. ad.name .. ' go', nil, 'answer') end
+    B('noscrap', 'Cancel', nil, 'answer'); return end
   if G.offer then dialog = 'Your research turned up ' .. G.offer.a.name .. ' (' .. G.offer.a.role .. '). ' .. G.offer.a.text
-    B('otake', 'Hire for ' .. (G.offer.a.price or 0) .. ' Capital', E.canTakeOffer(G)); B('opass', 'Pass'); return end
+    B('otake', 'Hire for ' .. (G.offer.a.price or 0) .. ' Capital', E.canTakeOffer(G), 'answer'); B('opass', 'Pass', nil, 'answer'); return end
   if ui.disc then local D = ui.disc; dialog = 'Choose ' .. D.need .. ' influence card(s) to discard.'
-    for _, c in each(p.inf) do if c.u ~= D.u then B('dpick_' .. c.u, (D.chosen[c.u] and '[x] ' or '[ ] ') .. E.ICARD[c.t].name) end end
-    B('dok', 'Done'); B('dno', 'Cancel'); return end
+    for _, c in each(p.inf) do if c.u ~= D.u then B('dpick_' .. c.u, (D.chosen[c.u] and '[x] ' or '[ ] ') .. E.ICARD[c.t].name, nil, 'answer') end end
+    B('dok', 'Done', nil, 'answer'); B('dno', 'Cancel', nil, 'answer'); return end
   if ui.sel then local c; for _, k in each(p.inf) do if k.u == ui.sel then c = k end end
     if c then local d = E.ICARD[c.t]; dialog = d.name .. ': choose a target. ' .. d.text
       local extra = jsA(ui.marks or {})
-      if d.target == 'player' then for pi, q in each(G.players) do local x = E.canPlay(G, ui.sel, pi, extra); if ok(x) then B('tgt_' .. pi, q.name) end end
-      elseif d.target == 'cell' then for _, cl in each(G.map.cells) do local x = E.canPlay(G, ui.sel, cl.id, extra); if ok(x) then B('tgt_' .. cl.id, cl.name) end end
-      elseif d.target == 'tile' then for k = 0, alen(G.rrow) - 1 do local x = E.canPlay(G, ui.sel, k, extra); if ok(x) then B('tgt_' .. k, 'Research row card ' .. (k + 1)) end end
-      elseif d.target == 'rtile' then for pi, q in each(G.players) do for k, t in each(q.tiles) do local x = E.canPlay(G, ui.sel, pi * 1000 + k, extra); if ok(x) then B('tgt_' .. (pi * 1000 + k), q.name .. ': ' .. t.name) end end end end
-      B('nosel', 'Cancel') end
+      if d.target == 'player' then for pi, q in each(G.players) do local x = E.canPlay(G, ui.sel, pi, extra); if ok(x) then B('tgt_' .. pi, q.name, nil, 'answer') end end
+      elseif d.target == 'cell' then for _, cl in each(G.map.cells) do local x = E.canPlay(G, ui.sel, cl.id, extra); if ok(x) then B('tgt_' .. cl.id, cl.name, nil, 'answer') end end
+      elseif d.target == 'tile' then for k = 0, alen(G.rrow) - 1 do local x = E.canPlay(G, ui.sel, k, extra); if ok(x) then B('tgt_' .. k, 'Research row card ' .. (k + 1), nil, 'answer') end end
+      elseif d.target == 'rtile' then for pi, q in each(G.players) do for k, t in each(q.tiles) do local x = E.canPlay(G, ui.sel, pi * 1000 + k, extra); if ok(x) then B('tgt_' .. (pi * 1000 + k), q.name .. ': ' .. t.name, nil, 'answer') end end end end
+      B('nosel', 'Cancel', nil, 'answer') end
     return end
   if G.phase == 'biz' then
-    if ok(E.canBail(G)) then B('bail', 'Post bail', E.canBail(G)) end
-    B('draw', 'Buy three, keep one', E.canDraw(G))
-    for _, f in ipairs(FAMS) do B('take_' .. f, 'Buy ' .. E.FNAME[f] .. ' from the pile', E.canTake(G, f)) end
+    dialog = 'Click a card to act: buy a machine or ingredients, research, hire, or run one of your machines. One thing a turn.'
+    if ok(E.canBail(G)) then B('bail', 'Post bail', E.canBail(G), 'more') end
     for i, m in each(p.mach) do
-      B('run_' .. i, 'Run ' .. m.name, E.canRun(G, i))
-      B('frun_' .. i, 'Free run: ' .. m.name, E.canRun(G, i, 'free')); B('rerun_' .. i, 'Re-run ' .. m.name, E.canRun(G, i, 'rerun')); B('hal_' .. i, 'HAL runs ' .. m.name, E.canRun(G, i, true)) end
-    for i, m in each(G.mkt) do B('buy_' .. i, 'Buy ' .. m.name, E.canBuy(G, i)) end
-    for k = 0, alen(G.rrow) - 1 do local c = G.rrow[k]; if c then B('research_' .. k, (c.win and 'Research the Secret Formula' or ('Research row card ' .. (k + 1) .. ' (tier ' .. c.tier .. ')')), E.canResearch(G, k)) end end
-    for k, ad in each(G.arow) do B('hire_' .. k, 'Hire ' .. ad.name, E.canHire(G, k)) end
-    for pi, q in each(G.players) do if pi ~= a then for k, ad in each(q.adv) do B('poach_' .. pi .. '_' .. k, 'Hire away ' .. ad.name, E.canHire(G, k, pi)); B('hit_' .. pi .. '_' .. k, 'Hit ' .. ad.name, E.canHit(G, pi, k)) end end end
-    B('lobby', 'Buy influence', E.canLobby(G)); B('sell_1', 'Sell Paul 1 Acidic card (+2 Capital)', E.canSell(G)); if (p.hand.sour or 0) >= 2 then B('sell_2', 'Sell Paul 2 Acidic cards (+4 Capital)', E.canSell(G)) end
-    for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }) end
-    for i, m in each(p.mach) do if ok(E.canScrap(G, i)) then B('mscrap_' .. i, 'Scrap ' .. m.name .. ' to the shelf') end end
-    B('pass', 'Pass for the rest of the market')
+      B('frun_' .. i, 'Free run: ' .. m.name, E.canRun(G, i, 'free'), 'more'); B('rerun_' .. i, 'Re-run ' .. m.name, E.canRun(G, i, 'rerun'), 'more'); B('hal_' .. i, 'HAL runs ' .. m.name, E.canRun(G, i, true), 'more') end
+    for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }, 'influence') end
+    B('lobby', 'Buy influence', E.canLobby(G), 'influence')
+    B('sell_1', 'Sell Paul 1 Acidic', E.canSell(G), 'more'); if (p.hand.sour or 0) >= 2 then B('sell_2', 'Sell Paul 2 Acidic', E.canSell(G), 'more') end
+    for pi, q in each(G.players) do if pi ~= a then for k, ad in each(q.adv) do B('poach_' .. pi .. '_' .. k, 'Hire away ' .. ad.name, E.canHire(G, k, pi), 'more'); B('hit_' .. pi .. '_' .. k, 'Hit ' .. ad.name, E.canHit(G, pi, k), 'more') end end end
+    for i, m in each(p.mach) do if ok(E.canScrap(G, i)) then B('mscrap_' .. i, 'Scrap ' .. m.name, nil, 'scrap') end end
+    B('pass', 'Pass for the rest of the market', nil, 'end')
   elseif G.phase == 'place' then
-    dialog = ui.impMode and 'Click a market you control to put a capital token on it.' or ('Click a market to place loyalty. Loyalty: ' .. p.loy .. '.')
-    if (p.imp or 0) > 0 then B('impmode', ui.impMode and 'Back to loyalty' or ('Place a capital token (' .. p.imp .. ')')) end
-    for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }) end
-    B('pass', 'Done placing')
+    dialog = ui.impMode and 'Click a market you control to put a capital token on it.' or ('Click a market to place a loyalty token. You have ' .. p.loy .. ' loyalty.')
+    if (p.imp or 0) > 0 then B('impmode', ui.impMode and 'Back to loyalty tokens' or ('Place a capital token (' .. p.imp .. ' to place)'), nil, 'more') end
+    for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }, 'influence') end
+    B('pass', 'Done placing', nil, 'end')
   end
 end
 
@@ -349,10 +410,11 @@ local function setupXml()
   for i = 1, 3 do local o = ''; for _, x in ipairs(opts) do o = o .. '<Option' .. ((S.setup.seats[i] == x) and ' selected="true"' or '') .. '>' .. x .. '</Option>' end
     seats = seats .. '<HorizontalLayout preferredHeight="40" spacing="8"><Text color="' .. ({ '#e05a4c', '#4b8fe0', '#43b06c' })[i] .. '" fontSize="20" preferredWidth="110">' .. SEATCOL[i] .. '</Text><Dropdown id="seat' .. i .. '" onValueChanged="uiSeat" preferredWidth="330">' .. o .. '</Dropdown></HorizontalLayout>' end
   local function radio(id, val, label, cur) return '<Button id="' .. id .. '_' .. val .. '" onClick="uiSetup" colors="' .. (cur == val and '#f4d03f|#ffe27a|#d8b52a|#888888' or '#efe6d2|#ffffff|#cfc4aa|#888888') .. '" preferredHeight="36">' .. label .. '</Button>' end
-  return '<Panel id="setup" width="560" height="560" color="#2b1a14f2" outline="#f4d03f" outlineSize="2 2"><VerticalLayout padding="18" spacing="10" childForceExpandHeight="false">' ..
+  return '<Panel id="setup" width="560" height="590" color="#2b1a14f2" outline="#f4d03f" outlineSize="2 2"><VerticalLayout padding="18" spacing="10" childForceExpandHeight="false">' ..
     '<Text fontSize="34" fontStyle="Bold" color="#f4d03f">Sour Empire</Text>' ..
     '<HorizontalLayout preferredHeight="40" spacing="8">' .. radio('np', 2, 'Two players', S.setup.np) .. radio('np', 3, 'Three players', S.setup.np) .. '</HorizontalLayout>' ..
     seats ..
+    '<Text fontSize="15" color="#cfc4aa" alignment="MiddleLeft">The first human seat is Red; whoever presses Set up sits there.</Text>' ..
     '<Text fontSize="18" color="#efe6d2" alignment="MiddleLeft">How much should the table enforce?</Text>' ..
     '<HorizontalLayout preferredHeight="40" spacing="8">' .. radio('mode', 'full', 'Full rules', S.setup.mode) .. radio('mode', 'arith', 'Arithmetic only', S.setup.mode) .. radio('mode', 'log', 'None, just log', S.setup.mode) .. '</HorizontalLayout>' ..
     '<Text fontSize="15" color="#cfc4aa" alignment="MiddleLeft">Bots need full rules. In the other modes, bot seats are left empty.</Text>' ..
@@ -361,6 +423,7 @@ local function setupXml()
     '<Button id="start" onClick="uiStart" preferredHeight="50" fontSize="22" colors="#2f9e5b|#43b06c|#227a45|#888888" textColor="#ffffff">Set up the table</Button>' ..
     '</VerticalLayout></Panel>'
 end
+local GROUPS = { { 'answer', '' }, { 'influence', 'Influence' }, { 'more', 'Also' }, { 'scrap', 'Scrap a machine to your shelf' }, { 'end', '' } }
 local function panelXml()
   local x = '<Panel id="tools" rectAlignment="UpperRight" width="230" height="' .. (S.mode == 'full' and 90 or 250) .. '" offsetXY="-10 -60" color="#2b1a14e6"><VerticalLayout padding="6" spacing="4">'
   x = x .. '<Button id="rec" onClick="uiRecord">Write the record to the Notebook</Button>'
@@ -370,41 +433,35 @@ local function panelXml()
   end
   x = x .. '<Button id="newgame" onClick="uiNew">New game</Button></VerticalLayout></Panel>'
   if S.mode ~= 'full' or not S.G then return x end
+  local G = S.G
+  if G.winner ~= nil then return x .. '<Panel id="act" rectAlignment="LowerCenter" width="560" height="60" offsetXY="0 12" color="#2b1a14ee"><Text fontSize="22" color="#f4d03f">' .. esc(P(G.winner).name .. ' wins.') .. '</Text></Panel>' end
   buildActions()
   local a = actor(); local col = SEATCOL[a + 1]
+  if not S.seats[a + 1].human then
+    return x .. '<Panel id="act" rectAlignment="LowerCenter" width="460" height="44" offsetXY="0 12" color="#2b1a14cc"><Text fontSize="17" color="#efe6d2">' .. esc(P(a).name .. ' (bot) is thinking...') .. '</Text></Panel>' end
   local vis = S.anyone and '' or (' visibility="' .. col .. '"')
-  local rows = math.ceil(#btns / 3)
-  local h = 70 + rows * 40 + (dialog and 70 or 0)
-  x = x .. '<Panel id="act" rectAlignment="LowerCenter" width="980" height="' .. h .. '" offsetXY="0 12" color="#2b1a14ee"' .. vis .. '><VerticalLayout padding="8" spacing="6" childForceExpandHeight="false">'
-  x = x .. '<Text fontSize="18" color="#f4d03f" preferredHeight="26">' .. esc(P(a).name .. ' (' .. col .. ') to act') .. '</Text>'
-  if dialog then x = x .. '<Text fontSize="15" color="#efe6d2" preferredHeight="64" alignment="UpperLeft">' .. esc(dialog) .. '</Text>' end
-  if #btns > 0 then x = x .. '<GridLayout cellSize="315 34" spacing="6 6" preferredHeight="' .. (rows * 40) .. '">'
-    for _, b in ipairs(btns) do x = x .. '<Button id="a_' .. b.id .. '" onClick="uiAct" fontSize="14">' .. esc(b.label) .. '</Button>' end
-    x = x .. '</GridLayout>' end
+  local body, h = '', 46
+  if dialog then body = body .. '<Text fontSize="15" color="#efe6d2" preferredHeight="' .. (#dialog > 150 and 64 or 40) .. '" alignment="MiddleLeft">' .. esc(dialog) .. '</Text>'; h = h + (#dialog > 150 and 70 or 46) end
+  for _, g in ipairs(GROUPS) do local list = {}; for _, b in ipairs(btns) do if b.group == g[1] then list[#list + 1] = b end end
+    if #list > 0 then
+      if g[2] ~= '' then body = body .. '<Text fontSize="13" color="#f4d03f" preferredHeight="18" alignment="MiddleLeft">' .. g[2] .. '</Text>'; h = h + 22 end
+      local cols = (g[1] == 'end') and 1 or 3; local rows = math.ceil(#list / cols)
+      body = body .. '<GridLayout cellSize="' .. (cols == 1 and 300 or 226) .. ' 32" spacing="6 6" childAlignment="MiddleCenter" preferredHeight="' .. (rows * 38) .. '">'
+      for _, b in ipairs(list) do body = body .. '<Button id="a_' .. b.id .. '" onClick="uiAct" fontSize="14"' .. (g[1] == 'end' and ' colors="#f4d03f|#ffe27a|#d8b52a|#888888"' or '') .. '>' .. esc(b.label) .. '</Button>' end
+      body = body .. '</GridLayout>'; h = h + rows * 38 + 6 end end
+  x = x .. '<Panel id="act" rectAlignment="LowerCenter" width="720" height="' .. h .. '" offsetXY="0 12" color="#2b1a14ee"' .. vis .. '><VerticalLayout padding="10" spacing="6" childForceExpandHeight="false">'
+  x = x .. '<Text fontSize="18" color="' .. ({ Red = '#ff8a7a', Blue = '#8fbaff', Green = '#7fdc9f' })[col] .. '" preferredHeight="24" fontStyle="Bold">' .. esc(P(a).name .. ' to act · round ' .. G.round .. ' · ' .. ({ stand = 'setup', biz = 'the market', place = 'the map', memo = 'payday' })[G.phase]) .. '</Text>' .. body
   x = x .. '</VerticalLayout></Panel>'
   return x
 end
 local lastXml = nil
 local function refreshUI()
-  local x = S.mode == 'setup' and setupXml() or panelXml()
+  local x = S.mode == 'setup' and setupXml() or (S.mode == 'loading' and '<Panel width="420" height="60" color="#2b1a14ee"><Text fontSize="20" color="#f4d03f">Laying out the table...</Text></Panel>' or panelXml())
   if x ~= lastXml then UI.setXml(x); lastXml = x end
 end
 
---[[ ---------- markets you can click ---------- ]]
-local function cellButtons()
-  for key, o in pairs(objs) do if key:sub(1, 5) == 'tile:' and alive(o) then o.clearButtons() end end
-  if S.mode ~= 'full' or not S.G or S.G.winner ~= nil or S.G.phase ~= 'place' then return end
-  local a = actor(); if not S.seats[a + 1].human or S.G.pending or S.G.offer then return end
-  for _, c in each(S.G.map.cells) do local o = objs['tile:' .. c.id]
-    if alive(o) then
-      local x = ui.impMode and E.canImprove(S.G, c.id) or E.canPlace(S.G, c.id)
-      if ok(x) then o.createButton({ click_function = 'onCellClick', function_owner = Global, label = ui.impMode and 'Invest' or ('Place ' .. ((x.cost and x.cost.loy) or '')), position = { 0, 0.3, 0 },
-        width = 900, height = 420, font_size = 220, color = { 0.17, 0.1, 0.08, 0.85 }, font_color = { 1, 0.93, 0.6 }, scale = { 1 / (2.8 / CARD_W), 1, 1 / (2.8 / CARD_H) } }) end
-    end
-  end
-end
-
 --[[ ---------- the record ---------- ]]
+local function trace(e) local okd, tb = pcall(function() return debug.traceback(tostring(e), 2) end); return okd and tb or tostring(e) end
 local function now() local okk, t = pcall(os.time); return okk and t or 0 end
 local function recPush(e) S.log = S.log or {}; e.t = now(); S.log[#S.log + 1] = e end
 local function recordText()
@@ -429,23 +486,15 @@ end
 
 --[[ ---------- the turn loop ---------- ]]
 local function sync()
-  if S.mode == 'full' and S.G then buildWant(); apply(); Wait.frames(cellButtons, 2) end
+  if S.mode == 'full' and S.G then buildWant(); apply(); Wait.frames(cardButtons, 2) end
   refreshUI()
   if S.mode == 'full' and S.G and S.G.winner ~= nil and not S.wroteEnd then S.wroteEnd = true; broadcastToAll(P(S.G.winner).name .. ' wins.', { 1, 0.9, 0.4 }); writeNotebook() end
   if S.mode == 'full' and S.G and S.G.winner == nil and not S.seats[actor() + 1].human and not busy then
     busy = true
     Wait.time(function() busy = false; if S.G and S.G.winner == nil and not S.seats[actor() + 1].human then
       local okk, err = pcall(function() E.botStep(S.G) end); if not okk then broadcastToAll('Bot error: ' .. tostring(err), { 1, 0.4, 0.4 }) end
-      if S.lastRound ~= S.G.round then S.lastRound = S.G.round; if S.autoRec ~= false then pcall(writeNotebook) end end
       sync() end end, S.speed or 1.2)
   end
-end
-function onCellClick(obj, color, alt)
-  if not canAct(color) then broadcastToColor('Not your turn.', color, { 1, 0.6, 0.6 }); return end
-  local key = (obj.getGMNotes() or ''):match('^se|tile:(.+)$'); if not key then return end
-  local done = ui.impMode and E.improve(S.G, key) or E.place(S.G, key)
-  if done then ui.impMode = false end
-  sync()
 end
 local function doAct(id)
   local G = S.G; local a = actor(); local p = P(a)
@@ -474,6 +523,8 @@ local function doAct(id)
   elseif cmd == 'bail' then acted = E.bail(G)
   elseif cmd == 'lobby' then acted = E.lobby(G)
   elseif cmd == 'sell' then acted = E.sell(G, num(r1))
+  elseif cmd == 'place' then acted = E.place(G, r1 .. (r2 ~= '' and ('_' .. r2) or ''))
+  elseif cmd == 'improve' then acted = E.improve(G, r1); if acted then ui.impMode = false end
   elseif cmd == 'pass' then ui.impMode = false; acted = E.pass(G)
   elseif cmd == 'impmode' then ui.impMode = not ui.impMode
   elseif cmd == 'iplay' then local u = num(r1); local c; for _, k in each(p.inf) do if k.u == u then c = k end end
@@ -492,9 +543,16 @@ local function doAct(id)
   end
   return acted
 end
+function onCardClick(obj, color, alt)
+  if not canAct(color) then broadcastToColor('Not your turn.', color, { 1, 0.6, 0.6 }); return end
+  local key = (obj.getGMNotes() or ''):match('^se|(.+)$'); if not key then return end
+  local w = cardActions()[key]; if not w then sync(); return end
+  local okk, err = xpcall(function() doAct(w[2]) end, trace); if not okk then broadcastToAll('Error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
+  sync()
+end
 function uiAct(player, value, id)
   if not canAct(player.color) then broadcastToColor('Not your turn.', player.color, { 1, 0.6, 0.6 }); return end
-  local okk, err = pcall(doAct, id:sub(3)); if not okk then broadcastToAll('Error: ' .. tostring(err), { 1, 0.4, 0.4 }) end
+  local okk, err = xpcall(function() doAct(id:sub(3)) end, trace); if not okk then broadcastToAll('Error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
   sync()
 end
 
@@ -534,25 +592,25 @@ local function dealPhysical(G)
   local function deck(key, keys, p, flip)
     if #keys == 0 then return end
     local cds, ids, cd = {}, {}, {}
-    for i = #keys, 1, -1 do local c = CARDS[keys[i]]; if c then local d = cardData('d', keys[i], p, 0, { 1, 1 }, flip, false); d.GMNotes = 'se|c:' .. keys[i]; cds[#cds + 1] = d; ids[#ids + 1] = d.CardID
+    for i = #keys, 1, -1 do local c = CARDS[keys[i]]; if c then local d = cardData('d', keys[i], p, 0, { CS, CS }, flip, false); d.GMNotes = 'se|c:' .. keys[i]; cds[#cds + 1] = d; ids[#ids + 1] = d.CardID
       for k, v in pairs(d.CustomDeck) do cd[k] = v end end end
-    if #cds == 1 then cds[1].Transform = tf(p, 0, { 1, 1 }, flip); objs[key] = spawnObjectData({ data = cds[1] }); return end
-    objs[key] = spawnObjectData({ data = { Name = 'Deck', Transform = tf(p, 0, { 1, 1 }, flip), DeckIDs = ids, CustomDeck = cd, ContainedObjects = cds, GMNotes = 'se|' .. key } })
+    if #cds == 1 then cds[1].Transform = tf(p, 0, { CS, CS }, flip); objs[key] = spawnObjectData({ data = cds[1] }); return end
+    objs[key] = spawnObjectData({ data = { Name = 'Deck', Transform = tf(p, 0, { CS, CS }, flip), DeckIDs = ids, CustomDeck = cd, ContainedObjects = cds, GMNotes = 'se|' .. key } })
   end
   local ing = {}; for _, c in each(G.deck) do ing[#ing + 1] = 'ing:' .. c.f .. ':' .. c.n end; deck('deck:ing', ing, slot('common', 'ideck'), true)
   local mach = {}; for _, m in each(G.mdeck) do mach[#mach + 1] = 'mach:' .. m.id end; deck('deck:mach', mach, slot('common', 'mdeck'), true)
   local res = {}; for _, c in each(G.rdeck) do res[#res + 1] = (c.kind == 'adv' and 'adv:' or 'res:') .. c.id end; deck('deck:res', res, slot('common', 'rdeck'), true)
   local inf = {}; for _, c in each(G.ideck) do inf[#inf + 1] = 'inf:' .. c.t .. ':' .. c.x end; deck('deck:inf', inf, slot('common', 'infdeck'), true)
   local memo = {}; for i = alen(E.MEMOS) - 1, 0, -1 do memo[#memo + 1] = 'memo:' .. i end; deck('deck:memo', memo, slot('common', 'memodeck'), true)
-  local loose = function(key, ck, p, flip) local d = cardData(key, ck, p, 0, { 1, 1 }, flip, false); objs[key] = spawnObjectData({ data = d }) end
+  local loose = function(key, ck, p, flip) local d = cardData(key, ck, p, 0, { CS, CS }, flip, false); objs[key] = spawnObjectData({ data = d }) end
   for i, m in each(G.mkt) do loose('mkt:' .. i, 'mach:' .. m.id, slot('common', 'mkt' .. i)) end
   for i = 0, alen(G.rrow) - 1 do local c = G.rrow[i]; if c then loose('rrow:' .. i, 'res:' .. c.id, slot('common', 'rrow' .. i), true) end end
   for i, a in each(G.arow) do loose('arow:' .. i, 'adv:' .. a.id, slot('common', 'arow' .. i)) end
   -- each company: bare hands, starting cards in hand, counters, chips, markers
   for pi, p in each(G.players) do local mat = 'mat' .. pi; local B = BOARD[mat]; local col = SEATCOL[pi + 1]
-    local d = cardData('m', 'mach:hands', slot(mat, 'floor0'), B.rot, { 1, 1 }, false, false); d.GMNotes = 'se|c:mach:hands'; objs['start:' .. pi] = spawnObjectData({ data = d })
+    local d = cardData('m', 'mach:hands', slot(mat, 'floor0'), B.rot, { CS, CS }, false, false); d.GMNotes = 'se|c:mach:hands'; objs['start:' .. pi] = spawnObjectData({ data = d })
     local ht = Player[col].getHandTransform and Player[col].getHandTransform()
-    if ht then for _, f in ipairs(FAMS) do for k = 1, (p.hand[f] or 0) do local h = cardData('h', 'ing:' .. f .. ':' .. E.FLAVOR[f][(k - 1) % 5], { x = ht.position.x, y = ht.position.y + 2, z = ht.position.z }, B.rot + 180, { 1, 1 }, false, false); h.GMNotes = 'se|c:ing:' .. f; spawnObjectData({ data = h }) end end end
+    if ht then for _, f in ipairs(FAMS) do for k = 1, (p.hand[f] or 0) do local h = cardData('h', 'ing:' .. f .. ':' .. E.FLAVOR[f][(k - 1) % 5], { x = ht.position.x, y = ht.position.y + 2, z = ht.position.z }, B.rot + 180, { CS, CS }, false, false); h.GMNotes = 'se|c:ing:' .. f; spawnObjectData({ data = h }) end end end
     for _, st in ipairs({ { 'cash', p.cash }, { 'loy', p.loy }, { 'stars', 0 }, { 'imp', 0 } }) do
       local q = slot(mat, st[1], 0, 0.15, 0.1)
       objs['ctr:' .. pi .. ':' .. st[1]] = spawnObjectData({ data = { Name = 'Counter', Transform = tf(q, B.rot, { 0.9, 0.9 }), GMNotes = 'se|ctr:' .. col .. ':' .. st[1], Counter = { value = st[2] } }, callback_function = function(o) if o.Counter then o.Counter.setValue(st[2]) end end })
@@ -686,17 +744,26 @@ function uiSetup(player, value, id)
   if k == 'np' then S.setup.np = tonumber(v) elseif k == 'speed' then S.setup.speed = tonumber(v) else S.setup[k] = v end
   lastXml = nil; refreshUI()
 end
-local function trace(e) local okd, tb = pcall(function() return debug.traceback(tostring(e), 2) end); return okd and tb or tostring(e) end
 function uiStart(player)
   local okk, err = xpcall(function()
     S.np = S.setup.np; S.mode = S.setup.mode; S.speed = S.setup.speed; S.anyone = S.setup.anyone == 'yes'
     S.seats = seatsFromSetup(); S.log = {}; S.wroteEnd = false
-    clearAll(); boardsUp(S.np)
+    -- whoever sets up sits in the first human seat, so their hand is theirs
+    if player and player.color and not RGB[player.color] then for i, st in ipairs(S.seats) do if st.human then pcall(function() player.changeColor(SEATCOL[i]) end); break end end end
+    clearAll(); btnLast = {}
+    for _, o in ipairs(getObjects()) do local note = o.getGMNotes and o.getGMNotes() or ''; if note:sub(1, 3) == 'se|' then o.destruct() end end
     local G = newEngineGame()
-    if S.mode == 'full' then S.G = G; S.lastRound = G.round
-      Wait.time(function() sync() end, 1.5)
-    else S.G = nil; S.deal = G; Wait.time(function() dealPhysical(G); recPush({ what = 'setup', seats = S.seats, mode = S.mode }); snapshot('start'); refreshUI() end, 1.5) end
-    lastXml = nil; refreshUI()
+    S.mode = 'loading'; lastXml = nil; refreshUI()
+    placeBoards(S.np)
+    calibrate(function() boardsUp(S.np, function()
+      local ok2, err2 = xpcall(function()
+        S.mode = S.setup.mode
+        if S.mode == 'full' then S.G = G; S.lastRound = G.round; sync()
+        else S.G = nil; S.deal = G; dealPhysical(G); recPush({ what = 'setup', seats = S.seats, mode = S.mode }); snapshot('start') end
+        lastXml = nil; refreshUI()
+      end, trace)
+      if not ok2 then broadcastToAll('Setup error: ' .. tostring(err2), { 1, 0.4, 0.4 }); print(err2) end
+    end) end)
   end, trace)
   if not okk then broadcastToAll('Setup error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
 end
@@ -710,7 +777,7 @@ end
 --[[ ---------- save and load ---------- ]]
 function onSave()
   if not S then return '' end
-  local keep = { v = VERSION, mode = S.mode, np = S.np, seats = S.seats, setup = S.setup, speed = S.speed, anyone = S.anyone, log = S.log, lastRound = S.lastRound, wroteEnd = S.wroteEnd, cellName = S.cellName }
+  local keep = { v = VERSION, mode = S.mode, np = S.np, seats = S.seats, setup = S.setup, speed = S.speed, anyone = S.anyone, log = S.log, lastRound = S.lastRound, wroteEnd = S.wroteEnd, cellName = S.cellName, cardW = S.cardW, cardH = S.cardH }
   local okk, out = pcall(function() return JSON.encode(keep) .. '\n' .. (S.G and serialize(S.G) or '') .. '\n' .. (S.deal and serialize(S.deal) or '') end)
   return okk and out or ''
 end
@@ -732,7 +799,9 @@ function onLoad(saved)
   -- find the pieces we spawned before the save
   for _, o in ipairs(getObjects()) do local note = o.getGMNotes and o.getGMNotes() or ''; local key = note:match('^se|(.+)$')
     if key then if key:sub(1, 6) == 'board:' then objs[key] = o elseif S.mode == 'full' then objs[key] = o end end end
-  if S.mode ~= 'setup' then placeBoards(S.np or 3) end
+  if S.mode == 'loading' then S.mode = 'setup' end
+  if S.mode ~= 'setup' then placeBoards(S.np or 3)
+    if S.cardW then CARD_W, CARD_H = S.cardW, S.cardH; CS = math.min(0.95 * BOARD.common.L.slots.mkt0[3] / CARD_W, 0.95 * BOARD.common.L.slots.mkt0[4] / CARD_H) end end
   refreshUI()
   if S.mode == 'full' and S.G then Wait.time(sync, 1) end
 end

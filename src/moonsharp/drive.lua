@@ -15,10 +15,10 @@ for g = 1, GAMES or 2 do
     else
       if not S.G or S.G.winner ~= nil then break end
       local ids = {}; for id in (MOCK.xml or ''):gmatch('id="a_([^"]+)"') do ids[#ids + 1] = id end
-      local tiles = {}; for _, o in ipairs(getObjects()) do if #o.buttons > 0 and o.notes:sub(1, 8) == 'se|tile:' then tiles[#tiles + 1] = o end end
+      local tiles = {}; for _, o in ipairs(getObjects()) do if #o.buttons > 0 and o.buttons[1].click_function == 'onCardClick' then tiles[#tiles + 1] = o end end
       if #ids == 0 and #tiles == 0 then print('stuck in phase ' .. tostring(S.G.phase)); break end
       acts = acts + 1
-      if #tiles > 0 and math.random() < 0.85 then onCellClick(tiles[math.random(#tiles)], 'Red', false)
+      if #tiles > 0 and math.random() < 0.85 then onCardClick(tiles[math.random(#tiles)], 'Red', false)
       else local pref = {}; for _, id in ipairs(ids) do if id:match('^(memo|pick|otake|run|research|buy|draw|take|hire|scrap|tgt|dok|impmode)') or id:match('^memo') or id:match('^pick') or id:match('^run') or id:match('^research') or id:match('^buy') or id:match('^draw') or id:match('^take') then pref[#pref + 1] = id end end
         local pool = (#pref > 0 and math.random() < 0.8) and pref or ids
         uiAct(P, '', 'a_' .. pool[math.random(#pool)]) end

@@ -20,6 +20,7 @@ local function mkobj(data)
   o.destruct = function() live(); o.dead = true end
   o.getBoundsNormalized = function() local ar = 1
       if data.CustomImage then local f = data.CustomImage.ImageURL:match('([^/]+)%.png$'); local L = LAYOUT.files[f]; if L then ar = L.h / L.w end end
+      if data.CardID then return { size = vec(2.2 * o.scale.x, 0.1, 3.1 * o.scale.z), center = o.getPosition() } end
       return { size = vec(2 * o.scale.x, 0.2, 2 * ar * o.scale.z), center = o.getPosition() } end
   o.createButton = function(b) live(); assert(b.click_function and b.function_owner, 'button without a handler'); assert(type(_G[b.click_function]) == 'function', 'no global ' .. b.click_function); o.buttons[#o.buttons + 1] = b end
   o.clearButtons = function() live(); o.buttons = {} end
@@ -36,7 +37,8 @@ local HANDS = { Red = vec(0, 4.5, -27), Blue = vec(-36, 4.5, 0), Green = vec(36,
 Player = setmetatable({}, { __index = function(t, col) return { color = col, getHandTransform = function() return { position = HANDS[col], rotation = vec() } end,
   getHandObjects = function() return {} end, seated = true } end })
 UI = { setXml = function(x) MOCK.xml = x; MOCK.xmlCount = (MOCK.xmlCount or 0) + 1 end, setAttribute = function() end }
-Wait = { time = function(f, t) MOCK.waits[#MOCK.waits + 1] = f end, frames = function(f, n) MOCK.waits[#MOCK.waits + 1] = f end }
+Wait = { time = function(f, t) MOCK.waits[#MOCK.waits + 1] = f end, frames = function(f, n) MOCK.waits[#MOCK.waits + 1] = f end,
+  condition = function(f, c, t, tf) MOCK.waits[#MOCK.waits + 1] = function() if c() then f() elseif tf then tf() end end end }
 Notes = { getNotebookTabs = function() local out = {}; for i, t in ipairs(MOCK.tabs) do out[#out + 1] = { index = i - 1, title = t.title, body = t.body } end return out end,
   addNotebookTab = function(t) MOCK.tabs[#MOCK.tabs + 1] = { title = t.title, body = t.body }; return #MOCK.tabs - 1 end,
   editNotebookTab = function(t) MOCK.tabs[t.index + 1] = { title = t.title, body = t.body } end,

@@ -27,7 +27,7 @@ def buttons(L):
 def tile_buttons(L):
     out = []
     for o in L.globals().getObjects().values():
-        if o.buttons and len(o.buttons) and str(o.notes).startswith('se|tile:'): out.append(o)
+        if o.buttons and len(o.buttons) and o.buttons[1].click_function == 'onCardClick': out.append(o)
     return out
 
 def play(L, rnd, max_steps=4000, save_at=None):
@@ -49,7 +49,7 @@ def play(L, rnd, max_steps=4000, save_at=None):
         if not ids and not tiles: print('stuck: no actions; phase', S.G.phase); break
         human_acts += 1
         if tiles and rnd.random() < 0.85:
-            o = rnd.choice(tiles); G.onCellClick(o, 'Red', False); continue
+            o = rnd.choice(tiles); G.onCardClick(o, 'Red', False); continue
         prefer = [i for i in ids if re.match(r'(memo|pick|otake|opass|run|research|buy|draw|take|hire|scrap|tgt|dpick|dok|impmode|sell|frun|rerun)', i)]
         pool = prefer if prefer and rnd.random() < 0.8 else ids
         choice = rnd.choice(pool)
