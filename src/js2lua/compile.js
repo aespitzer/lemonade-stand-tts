@@ -170,6 +170,9 @@ function expr(n) {
       if (c.type === 'MemberExpression' && !c.computed) {
         const m = c.property.name;
         if (c.object.type === 'Identifier' && !scope.lookup(c.object.name) && GLOBALS.has(c.object.name)) return `JS_${c.object.name}.${m}(${args(n.arguments)})`;
+        // reduce with a starting value: say so explicitly, since MoonSharp cannot count a trailing nil argument
+        if ((m === 'push' || m === 'unshift') && n.arguments.length === 1 && n.arguments[0].type !== 'SpreadElement') return `__call(${expr(c.object)}, "${m}1", ${args(n.arguments)})`;
+        if (m === 'reduce' && n.arguments.length === 2) return `__call(${expr(c.object)}, "reduce2", ${args(n.arguments)})`;
         if (ARR_STR_METHODS.has(m)) return `__call(${expr(c.object)}, ${str(m)}${n.arguments.length ? ', ' + args(n.arguments) : ''})`;
         return `${fieldAccess(wrapObj(expr(c.object)), m)}(${args(n.arguments)})`;
       }

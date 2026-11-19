@@ -81,6 +81,7 @@ local function deserialize(s)
   end
   return val()
 end
+__SE_SER = { s = function(v) return serialize(v) end, d = function(s) return deserialize(s) end }
 function utf8char(c)
   if c < 0x800 then return string.char(0xC0 + math.floor(c / 64), 0x80 + c % 64) end
   return string.char(0xE0 + math.floor(c / 4096), 0x80 + math.floor(c / 64) % 64, 0x80 + c % 64)
@@ -685,8 +686,9 @@ function uiSetup(player, value, id)
   if k == 'np' then S.setup.np = tonumber(v) elseif k == 'speed' then S.setup.speed = tonumber(v) else S.setup[k] = v end
   lastXml = nil; refreshUI()
 end
+local function trace(e) local okd, tb = pcall(function() return debug.traceback(tostring(e), 2) end); return okd and tb or tostring(e) end
 function uiStart(player)
-  local okk, err = pcall(function()
+  local okk, err = xpcall(function()
     S.np = S.setup.np; S.mode = S.setup.mode; S.speed = S.setup.speed; S.anyone = S.setup.anyone == 'yes'
     S.seats = seatsFromSetup(); S.log = {}; S.wroteEnd = false
     clearAll(); boardsUp(S.np)
@@ -695,8 +697,8 @@ function uiStart(player)
       Wait.time(function() sync() end, 1.5)
     else S.G = nil; S.deal = G; Wait.time(function() dealPhysical(G); recPush({ what = 'setup', seats = S.seats, mode = S.mode }); snapshot('start'); refreshUI() end, 1.5) end
     lastXml = nil; refreshUI()
-  end)
-  if not okk then broadcastToAll('Setup error: ' .. tostring(err), { 1, 0.4, 0.4 }) end
+  end, trace)
+  if not okk then broadcastToAll('Setup error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
 end
 function uiRecord(player) local okk, err = pcall(writeNotebook); if not okk then broadcastToAll('Record error: ' .. tostring(err), { 1, 0.4, 0.4 }) end end
 function uiNew(player)

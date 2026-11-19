@@ -12,6 +12,9 @@ local function chars(x) local out = {}
   if UNICODE then for i = 1, #x do out[i] = ssub(x, i, i) end
   else for c in x:gmatch('[^\128-\191][\128-\191]*') do out[#out + 1] = c end end
   return out end
+-- MoonSharp reports no arguments as one nil argument; a lone nil counts as none (no caller here passes one on purpose)
+local function nargs(...) local n = select('#', ...); if n == 1 and (...) == nil then return 0 end return n end
+__nargs = nargs
 local ARR = { __js = 'array' }
 local SET = { __js = 'set' }
 local MAP = { __js = 'map' }
@@ -85,11 +88,17 @@ local function cmpv(a, b)
   if ta == 'string' and tb == 'string' then return a, b end
   return tonum(a), tonum(b)
 end
-function __lt(a, b) if type(a) == 'number' and type(b) == 'number' then return a < b end a, b = cmpv(a, b); return a < b end
-function __le(a, b) if type(a) == 'number' and type(b) == 'number' then return a <= b end a, b = cmpv(a, b); return a <= b end
-function __gt(a, b) if type(a) == 'number' and type(b) == 'number' then return a > b end a, b = cmpv(a, b); return a > b end
-function __ge(a, b) if type(a) == 'number' and type(b) == 'number' then return a >= b end a, b = cmpv(a, b); return a >= b end
-function __mod(a, b) return fmod(tonum(a), tonum(b)) end
+-- any comparison with NaN is false; MoonSharp computes a > b as not (a <= b), which makes NaN > 0 true, so check first
+function __lt(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return a < b end
+function __le(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return a <= b end
+function __gt(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return b < a end
+function __ge(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return b <= a end
+-- JavaScript's remainder takes the sign of the dividend. MoonSharp's math.fmod rounds instead (fmod(3, 5) is -2 there), so do it by hand.
+function __mod(a, b) a, b = tonum(a), tonum(b)
+  if b == 0 or a ~= a or b ~= b or a == huge or a == -huge then return 0 / 0 end
+  if b == huge or b == -huge then return a end
+  local q = a / b; q = q >= 0 and floor(q) or math.ceil(q)
+  return a - q * b end
 
 function __typeof(x)
   local ty = type(x)
@@ -185,15 +194,17 @@ function __objrest(o, omit) local parts = {}; local skip = {}; for _, k in ipair
   local out, ks = {}, {}
   for _, k in ipairs(keys(o)) do if not skip[k] then out[k] = o[k]; if type(k) == 'string' then ks[#ks + 1] = k end end end
   ORD[out] = ks; return out end
-function __pack(...) local n = select('#', ...); local t = { ... }; local out = { __n = n }; for i = 1, n do out[i - 1] = t[i] end return mkA(out) end
+function __pack(...) local n = nargs(...); local t = { ... }; local out = { __n = n }; for i = 1, n do out[i - 1] = t[i] end return mkA(out) end
 function __unpack(a) a = toArr(a); local n = a.__n; if n == 0 then return end local t = {}; for i = 0, n - 1 do t[i + 1] = a[i] end return unpack_(t, 1, n) end -- MoonSharp's unpack misreads lists that start at 0
 
 -- array methods (callbacks get value, index, array)
 local A = {}
-function A.push(a, ...) local n = select('#', ...); local t = { ... }; for i = 1, n do a[a.__n] = t[i]; a.__n = a.__n + 1 end return a.__n end
+function A.push(a, ...) local n = nargs(...); local t = { ... }; for i = 1, n do a[a.__n] = t[i]; a.__n = a.__n + 1 end return a.__n end
+function A.push1(a, v) a[a.__n] = v; a.__n = a.__n + 1; return a.__n end
+function A.unshift1(a, v) for i = a.__n - 1, 0, -1 do a[i + 1] = a[i] end a[0] = v; a.__n = a.__n + 1; return a.__n end
 function A.pop(a) if a.__n == 0 then return nil end a.__n = a.__n - 1; local v = a[a.__n]; a[a.__n] = nil; return v end
 function A.shift(a) if a.__n == 0 then return nil end local v = a[0]; for i = 1, a.__n - 1 do a[i - 1] = a[i] end a[a.__n - 1] = nil; a.__n = a.__n - 1; return v end
-function A.unshift(a, ...) local n = select('#', ...); local t = { ... }; for i = a.__n - 1, 0, -1 do a[i + n] = a[i] end for i = 1, n do a[i - 1] = t[i] end a.__n = a.__n + n; return a.__n end
+function A.unshift(a, ...) local n = nargs(...); local t = { ... }; for i = a.__n - 1, 0, -1 do a[i + n] = a[i] end for i = 1, n do a[i - 1] = t[i] end a.__n = a.__n + n; return a.__n end
 function A.map(a, f) local out = { __n = a.__n }; for i = 0, a.__n - 1 do out[i] = f(a[i], i, a) end return mkA(out) end
 function A.filter(a, f) local out, n = {}, 0; for i = 0, a.__n - 1 do local v = a[i]; if t_(f(v, i, a)) then out[n] = v; n = n + 1 end end out.__n = n; return mkA(out) end
 function A.forEach(a, f) for i = 0, a.__n - 1 do f(a[i], i, a) end end
@@ -201,9 +212,10 @@ function A.some(a, f) for i = 0, a.__n - 1 do if t_(f(a[i], i, a)) then return t
 function A.every(a, f) for i = 0, a.__n - 1 do if not t_(f(a[i], i, a)) then return false end end return true end
 function A.find(a, f) for i = 0, a.__n - 1 do if t_(f(a[i], i, a)) then return a[i] end end return nil end
 function A.findIndex(a, f) for i = 0, a.__n - 1 do if t_(f(a[i], i, a)) then return i end end return -1 end
+function A.reduce2(a, f, init) local acc = init; for i = 0, a.__n - 1 do acc = f(acc, a[i], i, a) end return acc end
 function A.reduce(a, f, ...)
   local acc, i0
-  if select('#', ...) > 0 then acc = ...; i0 = 0 else if a.__n == 0 then error('Reduce of empty array with no initial value') end acc = a[0]; i0 = 1 end
+  if nargs(...) > 0 then acc = ...; i0 = 0 else if a.__n == 0 then error('Reduce of empty array with no initial value') end acc = a[0]; i0 = 1 end
   for i = i0, a.__n - 1 do acc = f(acc, a[i], i, a) end
   return acc
 end
@@ -212,7 +224,7 @@ function A.slice(a, s, e) local n = a.__n; s = relidx(s, n, 0); e = relidx(e, n,
 function A.splice(a, s, dc, ...)
   local n = a.__n; s = relidx(s, n, 0)
   if dc == nil then dc = n - s else dc = math.max(0, math.min(floor(tonum(dc)), n - s)) end
-  local ins = { ... }; local ni = select('#', ...)
+  local ins = { ... }; local ni = nargs(...)
   local removed = { __n = dc }; for i = 0, dc - 1 do removed[i] = a[s + i] end
   local tail = {}; for i = s + dc, n - 1 do tail[#tail + 1] = a[i] end
   for i = s, n - 1 do a[i] = nil end
@@ -227,7 +239,7 @@ end
 function A.splice(a, s, dc, ...)
   local n = a.__n; s = relidx(s, n, 0)
   if dc == nil then dc = n - s else dc = math.max(0, math.min(floor(tonum(dc)), n - s)) end
-  local ni = select('#', ...); local ins = { ... }
+  local ni = nargs(...); local ins = { ... }
   local removed = { __n = dc }; for i = 0, dc - 1 do removed[i] = a[s + i] end
   local tn = n - s - dc; local tail = {}; for i = 0, tn - 1 do tail[i] = a[s + dc + i] end
   for i = s, n - 1 do a[i] = nil end
@@ -242,7 +254,7 @@ function A.indexOf(a, v, from) from = relidx(from, a.__n, 0); for i = from, a.__
 function A.join(a, sep) if sep == nil then sep = ',' end return joinA(a, sep) end
 function A.reverse(a) local n = a.__n; for i = 0, floor(n / 2) - 1 do a[i], a[n - 1 - i] = a[n - 1 - i], a[i] end return a end
 function A.fill(a, v, s, e) local n = a.__n; s = relidx(s, n, 0); e = relidx(e, n, n); for i = s, e - 1 do a[i] = v end return a end
-function A.concat(a, ...) local parts = { { s = a } }; local t = { ... }; for i = 1, select('#', ...) do local x = t[i]; if isarr(x) then parts[#parts + 1] = { s = x } else parts[#parts + 1] = { v = x } end end return __spreadA(parts) end
+function A.concat(a, ...) local parts = { { s = a } }; local t = { ... }; for i = 1, nargs(...) do local x = t[i]; if isarr(x) then parts[#parts + 1] = { s = x } else parts[#parts + 1] = { v = x } end end return __spreadA(parts) end
 function A.flat(a, depth) depth = depth or 1; local out, n = {}, 0
   local function put(x, d) if isarr(x) and d > 0 then for i = 0, x.__n - 1 do put(x[i], d - 1) end else out[n] = x; n = n + 1 end end
   for i = 0, a.__n - 1 do put(a[i], depth) end out.__n = n; return mkA(out) end
@@ -342,8 +354,8 @@ function __new(C, ...) if C == nil or C.new == nil then error('not a constructor
 
 -- globals the compiled code may use
 JS_Math = {
-  max = function(...) local n = select('#', ...); local r = -huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v > r then r = v end end return r end,
-  min = function(...) local n = select('#', ...); local r = huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v < r then r = v end end return r end,
+  max = function(...) local n = nargs(...); local r = -huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v > r then r = v end end return r end,
+  min = function(...) local n = nargs(...); local r = huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v < r then r = v end end return r end,
   floor = function(x) return floor(tonum(x)) end, ceil = function(x) return math.ceil(tonum(x)) end, abs = function(x) return math.abs(tonum(x)) end,
   round = function(x) x = tonum(x); return floor(x + 0.5) end, sqrt = function(x) return math.sqrt(tonum(x)) end, pow = function(a, b) return tonum(a) ^ tonum(b) end,
   trunc = function(x) x = tonum(x); if x < 0 then return math.ceil(x) end return floor(x) end, sign = function(x) x = tonum(x); return x > 0 and 1 or x < 0 and -1 or x end,
@@ -354,7 +366,7 @@ JS_Object = {
     local k = keys(o); local out = { __n = #k }; for i = 1, #k do out[i - 1] = k[i] end return mkA(out) end,
   values = function(o) local k = keys(o); local out = { __n = #k }; for i = 1, #k do out[i - 1] = o[k[i]] end return mkA(out) end,
   entries = function(o) local k = keys(o); local out = { __n = #k }; for i = 1, #k do out[i - 1] = mkA({ [0] = k[i], o[k[i]], __n = 2 }) end return mkA(out) end,
-  assign = function(t, ...) local srcs = { ... }; for i = 1, select('#', ...) do local s = srcs[i]; if s ~= nil then for _, k in ipairs(keys(s)) do __set(t, k, s[k]) end end end return t end,
+  assign = function(t, ...) local srcs = { ... }; for i = 1, nargs(...) do local s = srcs[i]; if s ~= nil then for _, k in ipairs(keys(s)) do __set(t, k, s[k]) end end end return t end,
 }
 JS_Array = {
   isArray = function(x) return isarr(x) end,
@@ -396,7 +408,7 @@ JS_Date = { now = nowms, new = function() return { toISOString = function() loca
 JS_isNaN = function(x) x = tonum(x); return x ~= x end
 JS_parseInt = function(s) local n = tonumber(str_(s):match('^%s*([%+%-]?%d+)')); if n == nil then return 0 / 0 end return n end
 JS_parseFloat = function(s) local n = tonumber(str_(s):match('^%s*([%+%-]?[%d%.]+[eE]?[%+%-]?%d*)')); if n == nil then return 0 / 0 end return n end
-setmetatable(JS_Array, { __call = function(_, ...) local n = select('#', ...)
+setmetatable(JS_Array, { __call = function(_, ...) local n = nargs(...)
   if n == 1 and type((...)) == 'number' then return mkA({ __n = (...) }) end
   return __pack(...) end })
 JS_Array.new = function(...) return JS_Array(...) end

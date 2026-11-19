@@ -21,6 +21,9 @@ local function chars(x) local out = {}
   if UNICODE then for i = 1, #x do out[i] = ssub(x, i, i) end
   else for c in x:gmatch('[^\128-\191][\128-\191]*') do out[#out + 1] = c end end
   return out end
+-- MoonSharp reports no arguments as one nil argument; a lone nil counts as none (no caller here passes one on purpose)
+local function nargs(...) local n = select('#', ...); if n == 1 and (...) == nil then return 0 end return n end
+__nargs = nargs
 local ARR = { __js = 'array' }
 local SET = { __js = 'set' }
 local MAP = { __js = 'map' }
@@ -94,11 +97,17 @@ local function cmpv(a, b)
   if ta == 'string' and tb == 'string' then return a, b end
   return tonum(a), tonum(b)
 end
-function __lt(a, b) if type(a) == 'number' and type(b) == 'number' then return a < b end a, b = cmpv(a, b); return a < b end
-function __le(a, b) if type(a) == 'number' and type(b) == 'number' then return a <= b end a, b = cmpv(a, b); return a <= b end
-function __gt(a, b) if type(a) == 'number' and type(b) == 'number' then return a > b end a, b = cmpv(a, b); return a > b end
-function __ge(a, b) if type(a) == 'number' and type(b) == 'number' then return a >= b end a, b = cmpv(a, b); return a >= b end
-function __mod(a, b) return fmod(tonum(a), tonum(b)) end
+-- any comparison with NaN is false; MoonSharp computes a > b as not (a <= b), which makes NaN > 0 true, so check first
+function __lt(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return a < b end
+function __le(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return a <= b end
+function __gt(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return b < a end
+function __ge(a, b) if type(a) ~= 'number' or type(b) ~= 'number' then a, b = cmpv(a, b) end if a ~= a or b ~= b then return false end return b <= a end
+-- JavaScript's remainder takes the sign of the dividend. MoonSharp's math.fmod rounds instead (fmod(3, 5) is -2 there), so do it by hand.
+function __mod(a, b) a, b = tonum(a), tonum(b)
+  if b == 0 or a ~= a or b ~= b or a == huge or a == -huge then return 0 / 0 end
+  if b == huge or b == -huge then return a end
+  local q = a / b; q = q >= 0 and floor(q) or math.ceil(q)
+  return a - q * b end
 
 function __typeof(x)
   local ty = type(x)
@@ -194,15 +203,17 @@ function __objrest(o, omit) local parts = {}; local skip = {}; for _, k in ipair
   local out, ks = {}, {}
   for _, k in ipairs(keys(o)) do if not skip[k] then out[k] = o[k]; if type(k) == 'string' then ks[#ks + 1] = k end end end
   ORD[out] = ks; return out end
-function __pack(...) local n = select('#', ...); local t = { ... }; local out = { __n = n }; for i = 1, n do out[i - 1] = t[i] end return mkA(out) end
+function __pack(...) local n = nargs(...); local t = { ... }; local out = { __n = n }; for i = 1, n do out[i - 1] = t[i] end return mkA(out) end
 function __unpack(a) a = toArr(a); local n = a.__n; if n == 0 then return end local t = {}; for i = 0, n - 1 do t[i + 1] = a[i] end return unpack_(t, 1, n) end -- MoonSharp's unpack misreads lists that start at 0
 
 -- array methods (callbacks get value, index, array)
 local A = {}
-function A.push(a, ...) local n = select('#', ...); local t = { ... }; for i = 1, n do a[a.__n] = t[i]; a.__n = a.__n + 1 end return a.__n end
+function A.push(a, ...) local n = nargs(...); local t = { ... }; for i = 1, n do a[a.__n] = t[i]; a.__n = a.__n + 1 end return a.__n end
+function A.push1(a, v) a[a.__n] = v; a.__n = a.__n + 1; return a.__n end
+function A.unshift1(a, v) for i = a.__n - 1, 0, -1 do a[i + 1] = a[i] end a[0] = v; a.__n = a.__n + 1; return a.__n end
 function A.pop(a) if a.__n == 0 then return nil end a.__n = a.__n - 1; local v = a[a.__n]; a[a.__n] = nil; return v end
 function A.shift(a) if a.__n == 0 then return nil end local v = a[0]; for i = 1, a.__n - 1 do a[i - 1] = a[i] end a[a.__n - 1] = nil; a.__n = a.__n - 1; return v end
-function A.unshift(a, ...) local n = select('#', ...); local t = { ... }; for i = a.__n - 1, 0, -1 do a[i + n] = a[i] end for i = 1, n do a[i - 1] = t[i] end a.__n = a.__n + n; return a.__n end
+function A.unshift(a, ...) local n = nargs(...); local t = { ... }; for i = a.__n - 1, 0, -1 do a[i + n] = a[i] end for i = 1, n do a[i - 1] = t[i] end a.__n = a.__n + n; return a.__n end
 function A.map(a, f) local out = { __n = a.__n }; for i = 0, a.__n - 1 do out[i] = f(a[i], i, a) end return mkA(out) end
 function A.filter(a, f) local out, n = {}, 0; for i = 0, a.__n - 1 do local v = a[i]; if t_(f(v, i, a)) then out[n] = v; n = n + 1 end end out.__n = n; return mkA(out) end
 function A.forEach(a, f) for i = 0, a.__n - 1 do f(a[i], i, a) end end
@@ -210,9 +221,10 @@ function A.some(a, f) for i = 0, a.__n - 1 do if t_(f(a[i], i, a)) then return t
 function A.every(a, f) for i = 0, a.__n - 1 do if not t_(f(a[i], i, a)) then return false end end return true end
 function A.find(a, f) for i = 0, a.__n - 1 do if t_(f(a[i], i, a)) then return a[i] end end return nil end
 function A.findIndex(a, f) for i = 0, a.__n - 1 do if t_(f(a[i], i, a)) then return i end end return -1 end
+function A.reduce2(a, f, init) local acc = init; for i = 0, a.__n - 1 do acc = f(acc, a[i], i, a) end return acc end
 function A.reduce(a, f, ...)
   local acc, i0
-  if select('#', ...) > 0 then acc = ...; i0 = 0 else if a.__n == 0 then error('Reduce of empty array with no initial value') end acc = a[0]; i0 = 1 end
+  if nargs(...) > 0 then acc = ...; i0 = 0 else if a.__n == 0 then error('Reduce of empty array with no initial value') end acc = a[0]; i0 = 1 end
   for i = i0, a.__n - 1 do acc = f(acc, a[i], i, a) end
   return acc
 end
@@ -221,7 +233,7 @@ function A.slice(a, s, e) local n = a.__n; s = relidx(s, n, 0); e = relidx(e, n,
 function A.splice(a, s, dc, ...)
   local n = a.__n; s = relidx(s, n, 0)
   if dc == nil then dc = n - s else dc = math.max(0, math.min(floor(tonum(dc)), n - s)) end
-  local ins = { ... }; local ni = select('#', ...)
+  local ins = { ... }; local ni = nargs(...)
   local removed = { __n = dc }; for i = 0, dc - 1 do removed[i] = a[s + i] end
   local tail = {}; for i = s + dc, n - 1 do tail[#tail + 1] = a[i] end
   for i = s, n - 1 do a[i] = nil end
@@ -236,7 +248,7 @@ end
 function A.splice(a, s, dc, ...)
   local n = a.__n; s = relidx(s, n, 0)
   if dc == nil then dc = n - s else dc = math.max(0, math.min(floor(tonum(dc)), n - s)) end
-  local ni = select('#', ...); local ins = { ... }
+  local ni = nargs(...); local ins = { ... }
   local removed = { __n = dc }; for i = 0, dc - 1 do removed[i] = a[s + i] end
   local tn = n - s - dc; local tail = {}; for i = 0, tn - 1 do tail[i] = a[s + dc + i] end
   for i = s, n - 1 do a[i] = nil end
@@ -251,7 +263,7 @@ function A.indexOf(a, v, from) from = relidx(from, a.__n, 0); for i = from, a.__
 function A.join(a, sep) if sep == nil then sep = ',' end return joinA(a, sep) end
 function A.reverse(a) local n = a.__n; for i = 0, floor(n / 2) - 1 do a[i], a[n - 1 - i] = a[n - 1 - i], a[i] end return a end
 function A.fill(a, v, s, e) local n = a.__n; s = relidx(s, n, 0); e = relidx(e, n, n); for i = s, e - 1 do a[i] = v end return a end
-function A.concat(a, ...) local parts = { { s = a } }; local t = { ... }; for i = 1, select('#', ...) do local x = t[i]; if isarr(x) then parts[#parts + 1] = { s = x } else parts[#parts + 1] = { v = x } end end return __spreadA(parts) end
+function A.concat(a, ...) local parts = { { s = a } }; local t = { ... }; for i = 1, nargs(...) do local x = t[i]; if isarr(x) then parts[#parts + 1] = { s = x } else parts[#parts + 1] = { v = x } end end return __spreadA(parts) end
 function A.flat(a, depth) depth = depth or 1; local out, n = {}, 0
   local function put(x, d) if isarr(x) and d > 0 then for i = 0, x.__n - 1 do put(x[i], d - 1) end else out[n] = x; n = n + 1 end end
   for i = 0, a.__n - 1 do put(a[i], depth) end out.__n = n; return mkA(out) end
@@ -351,8 +363,8 @@ function __new(C, ...) if C == nil or C.new == nil then error('not a constructor
 
 -- globals the compiled code may use
 JS_Math = {
-  max = function(...) local n = select('#', ...); local r = -huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v > r then r = v end end return r end,
-  min = function(...) local n = select('#', ...); local r = huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v < r then r = v end end return r end,
+  max = function(...) local n = nargs(...); local r = -huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v > r then r = v end end return r end,
+  min = function(...) local n = nargs(...); local r = huge; local t = { ... }; for i = 1, n do local v = tonum(t[i]); if v ~= v then return v end if v < r then r = v end end return r end,
   floor = function(x) return floor(tonum(x)) end, ceil = function(x) return math.ceil(tonum(x)) end, abs = function(x) return math.abs(tonum(x)) end,
   round = function(x) x = tonum(x); return floor(x + 0.5) end, sqrt = function(x) return math.sqrt(tonum(x)) end, pow = function(a, b) return tonum(a) ^ tonum(b) end,
   trunc = function(x) x = tonum(x); if x < 0 then return math.ceil(x) end return floor(x) end, sign = function(x) x = tonum(x); return x > 0 and 1 or x < 0 and -1 or x end,
@@ -363,7 +375,7 @@ JS_Object = {
     local k = keys(o); local out = { __n = #k }; for i = 1, #k do out[i - 1] = k[i] end return mkA(out) end,
   values = function(o) local k = keys(o); local out = { __n = #k }; for i = 1, #k do out[i - 1] = o[k[i]] end return mkA(out) end,
   entries = function(o) local k = keys(o); local out = { __n = #k }; for i = 1, #k do out[i - 1] = mkA({ [0] = k[i], o[k[i]], __n = 2 }) end return mkA(out) end,
-  assign = function(t, ...) local srcs = { ... }; for i = 1, select('#', ...) do local s = srcs[i]; if s ~= nil then for _, k in ipairs(keys(s)) do __set(t, k, s[k]) end end end return t end,
+  assign = function(t, ...) local srcs = { ... }; for i = 1, nargs(...) do local s = srcs[i]; if s ~= nil then for _, k in ipairs(keys(s)) do __set(t, k, s[k]) end end end return t end,
 }
 JS_Array = {
   isArray = function(x) return isarr(x) end,
@@ -405,7 +417,7 @@ JS_Date = { now = nowms, new = function() return { toISOString = function() loca
 JS_isNaN = function(x) x = tonum(x); return x ~= x end
 JS_parseInt = function(s) local n = tonumber(str_(s):match('^%s*([%+%-]?%d+)')); if n == nil then return 0 / 0 end return n end
 JS_parseFloat = function(s) local n = tonumber(str_(s):match('^%s*([%+%-]?[%d%.]+[eE]?[%+%-]?%d*)')); if n == nil then return 0 / 0 end return n end
-setmetatable(JS_Array, { __call = function(_, ...) local n = select('#', ...)
+setmetatable(JS_Array, { __call = function(_, ...) local n = nargs(...)
   if n == 1 and type((...)) == 'number' then return mkA({ __n = (...) }) end
   return __pack(...) end })
 JS_Array.new = function(...) return JS_Array(...) end
@@ -432,7 +444,7 @@ for _, __v5 in __forof(__call(__call(cards, "slice", 0, (__get(keep, (tier - 1))
 local j, n, named, r
 local __v7 = __get(__v5, 0); j = __v7; local __v8 = __get(__v5, 1); local __v9 = __get(__v8, 0); n = __v9; local __v10 = __get(__v8, 1); named = __v10; local __v11 = __get(__v8, 2); r = __v11; 
 local nn, cost, card
-nn = __call(JS_Object.values((named)), "reduce", function(a, b)  
+nn = __call(JS_Object.values((named)), "reduce2", function(a, b)  
 do return __add(a, b) end
 end, (0))
 cost = __spreadO({{s=named}})
@@ -441,7 +453,7 @@ do local __v12 = cost; local __v13 = "any"; local __v14 = ((n - nn) - __S1.RCHEA
 end
 card = __mkO({["kind"]="res", ["id"]=__add("r", (function() local __v15 = __num(id); id = __v15 + 1 return __v15 end)()), ["tier"]=tier, ["cost"]=cost, ["st"]=(__T(r.st) or 0), ["get"]=__spreadO({{s=(__T(r.get) or __mkO({}, {}))}})}, {"kind", "id", "tier", "cost", "st", "get"})
 do local __v16 = card; local __v17 = "name"; local __v18 = (__T(__get(__get(NM, (tier - 1)), j)) or (function() if __t(r.st) then return __get(__S1.RNAME, __add("st", JS_Math.min(4, (r.st)))) end return (__T(__get(__S1.RNAME, __get(JS_Object.keys((card.get)), 0))) or "Research") end)()); __set(__v16, __v17, __v18) end
-__call(out, "push", (card))
+__call(out, "push1", (card))
 
 end
 
@@ -485,7 +497,7 @@ local k
 k = 0
 
 while __lt(k, __get(PFS, i)) do
-__call(G.deck, "push", (__mkO({["f"]=f, ["n"]=__get(__get(__S1.FLAVOR, f), __mod(k, __len(__get(__S1.FLAVOR, f))))}, {"f", "n"})))
+__call(G.deck, "push1", (__mkO({["f"]=f, ["n"]=__get(__get(__S1.FLAVOR, f), __mod(k, __len(__get(__S1.FLAVOR, f))))}, {"f", "n"})))
 
 do k = __num(k) + 1 end
 end
@@ -520,7 +532,7 @@ local c
 c = 0
 
 while __lt(c, S) do
-__call(G.map.cells, "push", (__mkO({["id"]=__add(__add(__add("c", c), "r"), r), ["c"]=c, ["r"]=r, ["name"]=__call(names, "pop"), ["tok"]=__mkO({}, {}), ["home"]=nil, ["bonus"]=nil}, {"id", "c", "r", "name", "tok", "home", "bonus"})))
+__call(G.map.cells, "push1", (__mkO({["id"]=__add(__add(__add("c", c), "r"), r), ["c"]=c, ["r"]=r, ["name"]=__call(names, "pop"), ["tok"]=__mkO({}, {}), ["home"]=nil, ["bonus"]=nil}, {"id", "c", "r", "name", "tok", "home", "bonus"})))
 
 do c = __num(c) + 1 end
 end
@@ -546,7 +558,7 @@ t = __v36;
 for _, __v38 in __forof(__get(__S1.IDECK, t)) do
 local x
 x = __v38; 
-__call(G.ideck, "push", (__mkO({["u"]=(function() local __v40 = __num(__S1.uid); __S1.uid = __v40 + 1 return __v40 end)(), ["t"]=t, ["x"]=x}, {"u", "t", "x"})))
+__call(G.ideck, "push1", (__mkO({["u"]=(function() local __v40 = __num(__S1.uid); __S1.uid = __v40 + 1 return __v40 end)(), ["t"]=t, ["x"]=x}, {"u", "t", "x"})))
 
 end
 
@@ -554,7 +566,7 @@ end
 __S1.shuffle((G.ideck))
 __call(seats, "forEach", (function(s, i)  local p
 p = __mkO({["name"]=s.name, ["bot"]=(not (not __t(s.bot))), ["gen"]=(__T(s.gen) or nil), ["spec"]=(__T(s.spec) or (__t(s.gen) and "evo" or __get(__mkA({[0]="mfg", "prd", "dis", ("gen"), __n=4}), JS_Math.floor(((JS_Math.random() * 4)))))), ["color"]=i, ["shelf"]=__mkA({__n=0}), ["cash"]=__S1.CASH0, ["hand"]=__mkO({["sweet"]=0, ["sour"]=0, ["herb"]=0, ["fizz"]=0}, {"sweet", "sour", "herb", "fizz"}), ["mach"]=__mkA({[0]=(__spreadO({{s=__S1.START}, {k="ran", v=false}})), __n=1}), ["adv"]=__mkA({__n=0}), ["tiles"]=__mkA({__n=0}), ["prog"]=0, ["era"]=1, ["loy"]=__S1.LOY0, ["stars"]=0, ["cont"]=__S1.num("C0", (__S1.CMAX)), ["ctl"]=0, ["tok"]=__S1.TOKN, ["home"]=nil, ["inf"]=__mkA({__n=0}), ["jail"]=false, ["raided"]=false, ["filed"]=false}, {"name", "bot", "gen", "spec", "color", "shelf", "cash", "hand", "mach", "adv", "tiles", "prog", "era", "loy", "stars", "cont", "ctl", "tok", "home", "inf", "jail", "raided", "filed"})
-__call(G.players, "push", (p))
+__call(G.players, "push1", (p))
 do
 local k
 k = 0
@@ -580,7 +592,7 @@ do return (a.id == id) end
 end))
 if __ge(k, 0) then a = __get(__call(G.rdeck, "splice", k, (1)), 0) else a = (function() if __ge(j, 0) then return __get(__call(G.arow, "splice", j, (1)), 0) end return nil end)() end
 if __t(a) then
-__call((__get(G.players, 0)).adv, "push", (a))
+__call((__get(G.players, 0)).adv, "push1", (a))
 __S1.refillA((G))
 end
 end
@@ -721,7 +733,7 @@ e = (S - 1)
 if (n == 2) then
 do return (__mkA({[0]=__mkA({[0]=0, (0), __n=2}), (__mkA({[0]=e, (e), __n=2})), __n=2})) end
 end
-if (__t(__get(__S1.BOARDS, n)) and (S == __add(__call((__get(__S1.BOARDS, n)).homes, "reduce", function(m, __p1) local r, c; local __v122 = __get(__p1, 0); r = __v122; local __v123 = __get(__p1, 1); c = __v123;  
+if (__t(__get(__S1.BOARDS, n)) and (S == __add(__call((__get(__S1.BOARDS, n)).homes, "reduce2", function(m, __p1) local r, c; local __v122 = __get(__p1, 0); r = __v122; local __v123 = __get(__p1, 1); c = __v123;  
 do return JS_Math.max(m, r, (c)) end
 end, (0)), 1))) then
 do return ((__get(__S1.BOARDS, n)).homes) end
@@ -738,7 +750,7 @@ __S1.refillA = function(G)
 
 end
 __S1.boardAdvisor = function(G, a)  
-__call(G.arow, "push", (a))
+__call(G.arow, "push1", (a))
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=a.name, ["tier"]=0}, {"name", "tier"}), ["from"]="rdeck", ["to"]=__add("arow-", (__len(G.arow) - 1)), ["slide"]=true}, {"k", "m", "from", "to", "slide"})))
 if __gt(__len(G.arow), __S1.ABOARD) then
 local old
@@ -804,9 +816,9 @@ __S1.acc(p, "adv", (o.a.price))
 __S1.acc(p, "advN", (1))
 do local __v145 = p; local __v146 = "cont"; local __v147 = (__get(__v145, __v146) - (__T(o.a.cc) or 0)); __set(__v145, __v146, __v147) end
 if __ge(__S1.used((p)), __S1.SLOTS) then gone = __S1.vacate(G, pi, (scrap)) else gone = "" end
-__call(p.adv, "push", (o.a))
+__call(p.adv, "push1", (o.a))
 __S1.hook(G, pi, (o.a))
-if not __t(__call((function() local __v149 = p; local __v150 = "ever"; local __v148 = (__T(p.ever) or __mkA({__n=0})); __set(__v149, __v150, __v148) return __v148 end)(), "includes", (o.a.id))) then __call(p.ever, "push", (o.a.id)) end
+if not __t(__call((function() local __v149 = p; local __v150 = "ever"; local __v148 = (__T(p.ever) or __mkA({__n=0})); __set(__v149, __v150, __v148) return __v148 end)(), "includes", (o.a.id))) then __call(p.ever, "push1", (o.a.id)) end
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=o.a.name, ["tier"]=0}, {"name", "tier"}), ["from"]="rdeck", ["to"]=__add(__add(__add("adv-", pi), "-"), (__len(p.adv) - 1))}, {"k", "m", "from", "to"})))
 do local __v151 = G; local __v152 = "st"; local __v153 = (__T(G.st) or __mkO({}, {})); __set(__v151, __v152, __v153) end
 do local __v154 = G.st; local __v155 = "offersTaken"; local __v156 = __add((__T(G.st.offersTaken) or 0), 1); __set(__v154, __v155, __v156) end
@@ -839,7 +851,7 @@ do
 while (__lt(__len(G.mkt), __S1.MKT) and __t(__len(G.mdeck))) do
 local m
 m = __call(G.mdeck, "pop")
-__call(G.mkt, "push", (m))
+__call(G.mkt, "push1", (m))
 do local __v164 = (function() local __v167 = G; local __v168 = "mseen"; local __v166 = (__T(G.mseen) or __mkO({}, {})); __set(__v167, __v168, __v166) return __v166 end)(); local __v165 = m.id; local __v169 = (__T(__get(G.mseen, m.id)) or G.round); __set(__v164, __v165, __v169) end
 
 end end
@@ -848,7 +860,7 @@ do return (a.price - b.price) end
 end))
 end
 __S1.log = function(G, p, text, kind)  
-__call(G.log, "push", (__mkO({["p"]=p, ["text"]=text, ["kind"]=(__T(kind) or "news"), ["r"]=G.round}, {"p", "text", "kind", "r"})))
+__call(G.log, "push1", (__mkO({["p"]=p, ["text"]=text, ["kind"]=(__T(kind) or "news"), ["r"]=G.round}, {"p", "text", "kind", "r"})))
 if __gt(__len(G.log), 120) then
 __call(G.log, "shift")
 end
@@ -873,7 +885,7 @@ d = __mkO({}, {})
 q = __mkA({__n=0})
 __call(origins, "forEach", (function(x)  
 do local __v171 = d; local __v172 = x.id; local __v173 = 0; __set(__v171, __v172, __v173) end
-__call(q, "push", (x))
+__call(q, "push1", (x))
 end))
 byPos = __mkO({}, {})
 __call(G.map.cells, "forEach", (function(x)  
@@ -891,7 +903,7 @@ local y
 y = __v178; 
 if (__t(y) and (__get(d, y.id) == nil)) then
 do local __v180 = d; local __v181 = y.id; local __v182 = __add(__get(d, x.id), 1); __set(__v180, __v181, __v182) end
-__call(q, "push", (y))
+__call(q, "push1", (y))
 end
 
 end
@@ -995,7 +1007,7 @@ if ((G.phase == "biz") and __t(__S1.hasA(__S1.P((G)), ("tina")))) then
 __S1.drawFree(G, __S1.P((G)), (1))
 __S1.log(G, G.turn, ("Tina handles a few things while " .. __str((__S1.P((G))).name) .. " is out."), ("news"))
 end
-__call(G.passed, "push", (G.turn))
+__call(G.passed, "push1", (G.turn))
 __S1.next((G))
 do return (true) end
 end
@@ -1031,7 +1043,7 @@ do local __v239 = c; local __v240 = "becky"; local __v241 = pi; __set(__v239, __
 end
 __S1.fx(G, (__mkO({["k"]="stand", ["pi"]=pi, ["from"]=__add("seat-", pi), ["to"]=__add("cell-", id)}, {"k", "pi", "from", "to"})))
 __S1.log(G, pi, (__str(p.name) .. " sets up a card table in " .. __str(c.name) .. "."), ("up"))
-__call(G.passed, "push", (pi))
+__call(G.passed, "push1", (pi))
 __S1.next((G))
 do return (true) end
 end
@@ -1062,7 +1074,7 @@ do local __v249 = G; local __v250 = "deck"; local __v251 = __S1.shuffle((G.disc)
 do local __v252 = G; local __v253 = "disc"; local __v254 = __mkA({__n=0}); __set(__v252, __v253, __v254) end
 end
 if __t(__len(G.deck)) then
-__call(cs, "push", (__call(G.deck, "pop")))
+__call(cs, "push1", (__call(G.deck, "pop")))
 end
 
 do k = __num(k) + 1 end
@@ -1095,13 +1107,13 @@ end)), "filter", (function(x)
 do return (not __t(x.o.taken)) end
 end))
 __call(left, "forEach", (function(x)  
-__call(__get(G.piles, x.o.f), "push", (x.o))
+__call(__get(G.piles, x.o.f), "push1", (x.o))
 __S1.fx(G, (__mkO({["k"]="ing", ["f"]=x.o.f, ["n"]=1, ["from"]=__add("choice-", x.k), ["to"]=__add("pile-", x.o.f)}, {"k", "f", "n", "from", "to"})))
 end))
 do local __v266 = G; local __v267 = "st"; local __v268 = (__T(G.st) or __mkO({}, {})); __set(__v266, __v267, __v268) end
 do local __v269 = G.st; local __v270 = "drawn"; local __v271 = __add((__T(G.st.drawn) or 0), 1); __set(__v269, __v270, __v271) end
 if __t(__S1.TRACE) then
-__call((function() local __v273 = G; local __v274 = "clog2"; local __v272 = (__T(G.clog2) or __mkA({__n=0})); __set(__v273, __v274, __v272) return __v272 end)(), "push", (__mkO({["pi"]=ch.pi, ["r"]=G.round, ["n"]=ch.kept, ["how"]="draw"}, {"pi", "r", "n", "how"})))
+__call((function() local __v273 = G; local __v274 = "clog2"; local __v272 = (__T(G.clog2) or __mkA({__n=0})); __set(__v273, __v274, __v272) return __v272 end)(), "push1", (__mkO({["pi"]=ch.pi, ["r"]=G.round, ["n"]=ch.kept, ["how"]="draw"}, {"pi", "r", "n", "how"})))
 end
 __S1.log(G, ch.pi, (__str(p.name) .. " buys " .. __str(__call(__call(__call(ch.cards, "filter", (function(o)  
 do return o.taken end
@@ -1139,7 +1151,7 @@ do local __v284 = G.piles; local __v285 = f; local __v286 = __mkA({__n=0}); __se
 end
 do __S1.ops = __num(__S1.ops) + 1 end
 if __t(__S1.TRACE) then
-__call((function() local __v288 = G; local __v289 = "clog2"; local __v287 = (__T(G.clog2) or __mkA({__n=0})); __set(__v288, __v289, __v287) return __v287 end)(), "push", (__mkO({["pi"]=G.turn, ["r"]=G.round, ["n"]=n, ["how"]="take", ["cash"]=__S1.TAKE}, {"pi", "r", "n", "how", "cash"})))
+__call((function() local __v288 = G; local __v289 = "clog2"; local __v287 = (__T(G.clog2) or __mkA({__n=0})); __set(__v288, __v289, __v287) return __v287 end)(), "push1", (__mkO({["pi"]=G.turn, ["r"]=G.round, ["n"]=n, ["how"]="take", ["cash"]=__S1.TAKE}, {"pi", "r", "n", "how", "cash"})))
 end
 do local __v290 = G; local __v291 = "st"; local __v292 = (__T(G.st) or __mkO({}, {})); __set(__v290, __v291, __v292) end
 do local __v293 = G.st; local __v294 = "taken"; local __v295 = __add((__T(G.st.taken) or 0), 1); __set(__v293, __v294, __v295) end
@@ -1151,13 +1163,13 @@ do return (true) end
 end
 __S1.spend = function(G, p, fams, to)  
 if __t(__S1.TRACE) then
-__call((function() local __v300 = G; local __v301 = "slog"; local __v299 = (__T(G.slog) or __mkA({__n=0})); __set(__v300, __v301, __v299) return __v299 end)(), "push", (__mkO({["pi"]=__call(G.players, "indexOf", (p)), ["r"]=G.round, ["n"]=__len(fams), ["to"]=(__t(__call(JS_String((to)), "startsWith", ("mach"))) and "mach" or "research")}, {"pi", "r", "n", "to"})))
+__call((function() local __v300 = G; local __v301 = "slog"; local __v299 = (__T(G.slog) or __mkA({__n=0})); __set(__v300, __v301, __v299) return __v299 end)(), "push1", (__mkO({["pi"]=__call(G.players, "indexOf", (p)), ["r"]=G.round, ["n"]=__len(fams), ["to"]=(__t(__call(JS_String((to)), "startsWith", ("mach"))) and "mach" or "research")}, {"pi", "r", "n", "to"})))
 end
 for _, __v302 in __forof(fams) do
 local f
 f = __v302; 
 do local __v304 = p.hand; local __v305 = f; __set(__v304, __v305, __num((function() local __v304 = p.hand; local __v305 = f; return __get(__v304, __v305) end)()) - 1) end
-__call(G.disc, "push", (__mkO({["f"]=f, ["n"]=__get(__get(__S1.FLAVOR, f), 0)}, {"f", "n"})))
+__call(G.disc, "push1", (__mkO({["f"]=f, ["n"]=__get(__get(__S1.FLAVOR, f), 0)}, {"f", "n"})))
 __S1.fx(G, (__mkO({["k"]="ing", ["f"]=f, ["n"]=1, ["from"]=__add(__add(__add("hand-", __S1.PI(G, (p))), "-"), f), ["to"]=(__T(to) or "disc"), ["gone"]=true}, {"k", "f", "n", "from", "to", "gone"})))
 
 end
@@ -1173,7 +1185,7 @@ if __lt(__get(h, f), 1) then
 do return (nil) end
 end
 do local __v308 = h; local __v309 = f; __set(__v308, __v309, __num((function() local __v308 = h; local __v309 = f; return __get(__v308, __v309) end)()) - 1) end
-__call(use, "push", (f))
+__call(use, "push1", (f))
 end
 
 end
@@ -1189,7 +1201,7 @@ if (not __t(__get(h, g))) then
 do return (nil) end
 end
 do local __v312 = h; local __v313 = g; __set(__v312, __v313, __num((function() local __v312 = h; local __v313 = g; return __get(__v312, __v313) end)()) - 1) end
-__call(use, "push", (g))
+__call(use, "push1", (g))
 end
 
 end
@@ -1278,7 +1290,7 @@ end
 __S1.pour = function(G, pi, n, src)  local p
 p = __get(G.players, pi)
 if (__t(__S1.TRACE) and __t(n)) then
-__call((function() local __v344 = G; local __v345 = "plog"; local __v343 = (__T(G.plog) or __mkA({__n=0})); __set(__v344, __v345, __v343) return __v343 end)(), "push", (__mkO({["pi"]=pi, ["r"]=G.round, ["n"]=n, ["src"]=(__T(src) or "other")}, {"pi", "r", "n", "src"})))
+__call((function() local __v344 = G; local __v345 = "plog"; local __v343 = (__T(G.plog) or __mkA({__n=0})); __set(__v344, __v345, __v343) return __v343 end)(), "push1", (__mkO({["pi"]=pi, ["r"]=G.round, ["n"]=n, ["src"]=(__T(src) or "other")}, {"pi", "r", "n", "src"})))
 end
 do local __v346 = p; local __v347 = "prog"; local __v348 = __add(__get(__v346, __v347), n); __set(__v346, __v347, __v348) end
 do __S1.ops = __num(__S1.ops) + 1 end
@@ -1306,16 +1318,16 @@ end))) == 1))
 eraLead = aloneBefore
 if (MM == "all") then get = true else get = (function() if (MM == "none") then return false end return (function() if (MM == "map") then return (not __t(mapLead)) end return (not __t(eraLead)) end)() end)() end
 if __t(__S1.TRACE) then
-__call((function() local __v358 = G; local __v359 = "mlog"; local __v357 = (__T(G.mlog) or __mkA({__n=0})); __set(__v358, __v359, __v357) return __v357 end)(), "push", (__mkO({["pi"]=pi, ["r"]=G.round, ["era"]=p.era, ["got"]=(function() local __v360 = get; if __t(__v360) then return __lt(G.memoAt, __len(__S1.MEMOS)) end return __v360 end)(), ["eraLead"]=eraLead, ["mapLead"]=mapLead, ["ctl"]=__call(ctl, "slice"), ["id"]=G.memoAt}, {"pi", "r", "era", "got", "eraLead", "mapLead", "ctl", "id"})))
+__call((function() local __v358 = G; local __v359 = "mlog"; local __v357 = (__T(G.mlog) or __mkA({__n=0})); __set(__v358, __v359, __v357) return __v357 end)(), "push1", (__mkO({["pi"]=pi, ["r"]=G.round, ["era"]=p.era, ["got"]=(function() local __v360 = get; if __t(__v360) then return __lt(G.memoAt, __len(__S1.MEMOS)) end return __v360 end)(), ["eraLead"]=eraLead, ["mapLead"]=mapLead, ["ctl"]=__call(ctl, "slice"), ["id"]=G.memoAt}, {"pi", "r", "era", "got", "eraLead", "mapLead", "ctl", "id"})))
 end
 if (__t(get) and __lt(G.memoAt, __len(__S1.MEMOS))) then
-__call(G.memoQ, "push", (__mkO({["pi"]=pi, ["id"]=(function() local __v362 = __num((function() local __v361 = G; return __v361.memoAt end)()); local __v361 = G; __set(__v361, "memoAt", __v362 + 1) return __v362 end)()}, {"pi", "id"})))
+__call(G.memoQ, "push1", (__mkO({["pi"]=pi, ["id"]=(function() local __v362 = __num((function() local __v361 = G; return __v361.memoAt end)()); local __v361 = G; __set(__v361, "memoAt", __v362 + 1) return __v362 end)()}, {"pi", "id"})))
 elseif (((MM == "burn") and __t(eraLead)) and __lt(G.memoAt, __len(__S1.MEMOS))) then
 do local __v363 = G; __set(__v363, "memoAt", __num((function() local __v363 = G; return __v363.memoAt end)()) + 1) end
 end
 __S1.log(G, pi, (__gt(__S1.bandOf((p.era)), was) and (__str(__S1.co(G, (pi))) .. " enters era " .. __str(p.era) .. ". It is now a " .. __str((__get(__S1.BANDS, __S1.bandOf((p.era)))).name) .. ".") or (__str(__S1.co(G, (pi))) .. " enters era " .. __str(p.era) .. ".")), ((__gt(__S1.bandOf((p.era)), was) and "win" or "up")))
 if __t(__S1.TRACE) then
-__call((function() local __v365 = G; local __v366 = "elog"; local __v364 = (__T(G.elog) or __mkA({__n=0})); __set(__v365, __v366, __v364) return __v364 end)(), "push", (__mkO({["pi"]=pi, ["era"]=p.era, ["r"]=G.round}, {"pi", "era", "r"})))
+__call((function() local __v365 = G; local __v366 = "elog"; local __v364 = (__T(G.elog) or __mkA({__n=0})); __set(__v365, __v366, __v364) return __v364 end)(), "push1", (__mkO({["pi"]=pi, ["era"]=p.era, ["r"]=G.round}, {"pi", "era", "r"})))
 end
 if (((__S1.WIN == "era") and __ge(p.era, __S1.ERAS)) and (G.winner == nil)) then
 do local __v367 = G; local __v368 = "memoQ"; local __v369 = __mkA({__n=0}); __set(__v367, __v368, __v369) end
@@ -1384,8 +1396,8 @@ if (__ge(__S1.used((p)), __S1.SLOTS) and (__typeof(scrap) == "number")) then
 local old
 old = __get(p.mach, scrap)
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=old.name, ["tier"]=old.tier}, {"name", "tier"}), ["from"]=__add(__add(__add("mach-", G.turn), "-"), scrap), ["to"]="mdeck", ["gone"]=true}, {"k", "m", "from", "to", "gone"})))
-__call((function() local __v392 = G; local __v393 = "mdead"; local __v391 = (__T(G.mdead) or __mkA({__n=0})); __set(__v392, __v393, __v391) return __v391 end)(), "push", (__spreadO({{s=old}, {k="gone", v=G.round}, {k="pi", v=G.turn}})))
-__call((function() local __v395 = p; local __v396 = "shelf"; local __v394 = (__T(p.shelf) or __mkA({__n=0})); __set(__v395, __v396, __v394) return __v394 end)(), "push", (__mkO({["id"]=old.id, ["name"]=old.name, ["tier"]=old.tier, ["inp"]=__call(old.inp, "slice")}, {"id", "name", "tier", "inp"})))
+__call((function() local __v392 = G; local __v393 = "mdead"; local __v391 = (__T(G.mdead) or __mkA({__n=0})); __set(__v392, __v393, __v391) return __v391 end)(), "push1", (__spreadO({{s=old}, {k="gone", v=G.round}, {k="pi", v=G.turn}})))
+__call((function() local __v395 = p; local __v396 = "shelf"; local __v394 = (__T(p.shelf) or __mkA({__n=0})); __set(__v395, __v396, __v394) return __v394 end)(), "push1", (__mkO({["id"]=old.id, ["name"]=old.name, ["tier"]=old.tier, ["inp"]=__call(old.inp, "slice")}, {"id", "name", "tier", "inp"})))
 do local __v397 = p.mach; local __v398 = scrap; local __v399 = __spreadO({{s=m}, {k="ran", v=false}, {k="at", v=G.round}, {k="runs", v=0}, {k="pit", v=0}, {k="cards", v=0}}); __set(__v397, __v398, __v399) end
 do slot = scrap end
 do gone = (" It scraps the " .. __str(__call(old.name, "toLowerCase")) .. ".") end
@@ -1394,7 +1406,7 @@ if __ge(__S1.used((p)), __S1.SLOTS) then
 do gone = __S1.vacate(G, G.turn, (scrap)) end
 end
 do slot = __len(p.mach) end
-__call(p.mach, "push", (__spreadO({{s=m}, {k="ran", v=false}, {k="at", v=G.round}, {k="runs", v=0}, {k="pit", v=0}, {k="cards", v=0}})))
+__call(p.mach, "push1", (__spreadO({{s=m}, {k="ran", v=false}, {k="at", v=G.round}, {k="runs", v=0}, {k="pit", v=0}, {k="cards", v=0}})))
 end
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=m.name, ["tier"]=m.tier}, {"name", "tier"}), ["from"]=__add("mkt-", i), ["to"]=__add(__add(__add("mach-", G.turn), "-"), slot)}, {"k", "m", "from", "to"})))
 had = __call(G.mkt, "slice")
@@ -1439,8 +1451,8 @@ __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=a.name, ["tier"]=0}, {"na
 do return ((" " .. __str(a.name) .. " is let go.")) end
 end
 old = __get(__call(p.mach, "splice", s, (1)), 0)
-__call((function() local __v404 = G; local __v405 = "mdead"; local __v403 = (__T(G.mdead) or __mkA({__n=0})); __set(__v404, __v405, __v403) return __v403 end)(), "push", (__spreadO({{s=old}, {k="gone", v=G.round}, {k="pi", v=pi}})))
-__call((function() local __v407 = p; local __v408 = "shelf"; local __v406 = (__T(p.shelf) or __mkA({__n=0})); __set(__v407, __v408, __v406) return __v406 end)(), "push", (__mkO({["id"]=old.id, ["name"]=old.name, ["tier"]=old.tier, ["inp"]=__call(old.inp, "slice")}, {"id", "name", "tier", "inp"})))
+__call((function() local __v404 = G; local __v405 = "mdead"; local __v403 = (__T(G.mdead) or __mkA({__n=0})); __set(__v404, __v405, __v403) return __v403 end)(), "push1", (__spreadO({{s=old}, {k="gone", v=G.round}, {k="pi", v=pi}})))
+__call((function() local __v407 = p; local __v408 = "shelf"; local __v406 = (__T(p.shelf) or __mkA({__n=0})); __set(__v407, __v408, __v406) return __v406 end)(), "push1", (__mkO({["id"]=old.id, ["name"]=old.name, ["tier"]=old.tier, ["inp"]=__call(old.inp, "slice")}, {"id", "name", "tier", "inp"})))
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=old.name, ["tier"]=old.tier}, {"name", "tier"}), ["from"]=__add(__add(__add("mach-", pi), "-"), s), ["to"]="mdeck", ["gone"]=true}, {"k", "m", "from", "to", "gone"})))
 do return ((" It scraps the " .. __str(__call(old.name, "toLowerCase")) .. ".")) end
 end
@@ -1518,10 +1530,10 @@ __S1.acc(p, "adv", (x.cost.cash))
 __S1.acc(p, "advN", (1))
 do local __v416 = p; local __v417 = "cont"; local __v418 = (__get(__v416, __v417) - (__T(a.cc) or 0)); __set(__v416, __v417, __v418) end
 if __ge(__S1.used((p)), __S1.SLOTS) then gone = __S1.vacate(G, pi, (scrap)) else gone = "" end
-__call(p.adv, "push", (a))
+__call(p.adv, "push1", (a))
 __S1.hook(G, pi, (a))
 do __S1.ops = __add(__S1.ops, 2) end
-if not __t(__call((function() local __v420 = p; local __v421 = "ever"; local __v419 = (__T(p.ever) or __mkA({__n=0})); __set(__v420, __v421, __v419) return __v419 end)(), "includes", (a.id))) then __call(p.ever, "push", (a.id)) end
+if not __t(__call((function() local __v420 = p; local __v421 = "ever"; local __v419 = (__T(p.ever) or __mkA({__n=0})); __set(__v420, __v421, __v419) return __v419 end)(), "includes", (a.id))) then __call(p.ever, "push1", (a.id)) end
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=a.name, ["tier"]=0}, {"name", "tier"}), ["from"]=src, ["to"]=__add(__add(__add("adv-", pi), "-"), (__len(p.adv) - 1))}, {"k", "m", "from", "to"})))
 do local __v422 = G; local __v423 = "st"; local __v424 = (__T(G.st) or __mkO({}, {})); __set(__v422, __v423, __v424) end
 do local __v425 = G.st; local __v426 = ((from == nil) and "hires" or "poach"); local __v427 = __add((__T(__get(G.st, ((from == nil) and "hires" or "poach"))) or 0), 1); __set(__v425, __v426, __v427) end
@@ -1581,7 +1593,7 @@ k = 0
 
 while __lt(k, n) do
 do local __v441 = p.hand; __set(__v441, "sour", __num((function() local __v441 = p.hand; return __v441.sour end)()) - 1) end
-__call(G.disc, "push", (__mkO({["f"]="sour", ["n"]="Lemon"}, {"f", "n"})))
+__call(G.disc, "push1", (__mkO({["f"]="sour", ["n"]="Lemon"}, {"f", "n"})))
 
 do k = __num(k) + 1 end
 end
@@ -1658,7 +1670,7 @@ do return (__get(h, b) - __get(h, a)) end
 end)), 0)
 if __gt(__get(h, g), 0) then
 do local __v461 = h; local __v462 = g; __set(__v461, __v462, __num((function() local __v461 = h; local __v462 = g; return __get(__v461, __v462) end)()) - 1) end
-__call(use, "push", (g))
+__call(use, "push1", (g))
 else
 do return (nil) end
 end
@@ -1702,13 +1714,13 @@ __S1.acc(p, "resStars", ((__T(t.st) or 0)))
 __S1.spend(G, p, pay, (__add("rcard-", k)))
 end
 __call(G.rrow, "splice", k, (1))
-__call(G.rrow, "push", (nil))
+__call(G.rrow, "push1", (nil))
 do __S1.ops = __add(__S1.ops, 2) end
 if __t(t.st) then
 __S1.fx(G, (__mkO({["k"]="star", ["n"]=t.st, ["from"]=__add("rcard-", k), ["to"]=__add("stars-", pi)}, {"k", "n", "from", "to"})))
 end
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]=t.name, ["tier"]=t.tier}, {"name", "tier"}), ["from"]=__add("rcard-", k), ["to"]=__add("tiles-", pi)}, {"k", "m", "from", "to"})))
-__call((function() local __v464 = p; local __v465 = "tiles"; local __v463 = (__T(p.tiles) or __mkA({__n=0})); __set(__v464, __v465, __v463) return __v463 end)(), "push", (__spreadO({{s=t}, {k="cost", v=__spreadO({{s=t.cost}})}, {k="get", v=__spreadO({{s=t.get}})}, {k="r", v=G.round}, {k="copied", v=false}})))
+__call((function() local __v464 = p; local __v465 = "tiles"; local __v463 = (__T(p.tiles) or __mkA({__n=0})); __set(__v464, __v465, __v463) return __v463 end)(), "push1", (__spreadO({{s=t}, {k="cost", v=__spreadO({{s=t.cost}})}, {k="get", v=__spreadO({{s=t.get}})}, {k="r", v=G.round}, {k="copied", v=false}})))
 do local __v466 = G; local __v467 = "st"; local __v468 = (__T(G.st) or __mkO({}, {})); __set(__v466, __v467, __v468) end
 do local __v469 = G.st; local __v470 = "researched"; local __v471 = __add((__T(G.st.researched) or 0), 1); __set(__v469, __v470, __v471) end
 if __t(t.win) then
@@ -1885,7 +1897,7 @@ c = __call(G.ideck, "pop")
 if (not __t(c)) then
 do return end
 end
-__call(p.inf, "push", (c))
+__call(p.inf, "push1", (c))
 do __S1.ops = __num(__S1.ops) + 1 end
 __S1.fx(G, (__mkO({["k"]="inf", ["from"]="infdeck", ["to"]=__add("inf-", pi)}, {"k", "from", "to"})))
 __S1.log(G, pi, (__str(p.name) .. " acquires influence." .. __str((__t(c.x) and (" The Heat rises by " .. __str(c.x) .. ".") or ""))), ("inf"))
@@ -1911,7 +1923,7 @@ ctl = __call(G.players, "map", (function(_, j)
 do return __S1.controlled(G, (j)) end
 end))
 mtop = JS_Math.max(__unpack(__spreadA({{s=ctl}})))
-__call((function() local __v532 = G; local __v533 = "rlog"; local __v531 = (__T(G.rlog) or __mkA({__n=0})); __set(__v532, __v533, __v531) return __v531 end)(), "push", (__mkO({["pi"]=pi, ["r"]=G.round, ["mapLead"]=((__get(ctl, pi) == mtop) and (__len(__call(ctl, "filter", (function(x)  
+__call((function() local __v532 = G; local __v533 = "rlog"; local __v531 = (__T(G.rlog) or __mkA({__n=0})); __set(__v532, __v533, __v531) return __v531 end)(), "push1", (__mkO({["pi"]=pi, ["r"]=G.round, ["mapLead"]=((__get(ctl, pi) == mtop) and (__len(__call(ctl, "filter", (function(x)  
 do return (x == mtop) end
 end))) == 1))}, {"pi", "r", "mapLead"})))
 end
@@ -2343,14 +2355,14 @@ end
 __S1.payday = function(G)  local order, filers, good
 order = __S1.placeOrder((G))
 if __t(__S1.TRACE) then
-__call((function() local __v642 = G; local __v643 = "snap"; local __v641 = (__T(G.snap) or __mkA({__n=0})); __set(__v642, __v643, __v641) return __v641 end)(), "push", (__mkO({["r"]=G.round, ["ps"]=__call(G.players, "map", (function(q, i)  
-do return __mkO({["era"]=q.era, ["prog"]=q.prog, ["len"]=__S1.trackLen((q)), ["stars"]=q.stars, ["cash"]=q.cash, ["hand"]=__S1.handSize((q)), ["ctl"]=__S1.controlled(G, (i)), ["nm"]=__len(q.mach), ["cap"]=__call(q.mach, "reduce", function(a, m)  
+__call((function() local __v642 = G; local __v643 = "snap"; local __v641 = (__T(G.snap) or __mkA({__n=0})); __set(__v642, __v643, __v641) return __v641 end)(), "push1", (__mkO({["r"]=G.round, ["ps"]=__call(G.players, "map", (function(q, i)  
+do return __mkO({["era"]=q.era, ["prog"]=q.prog, ["len"]=__S1.trackLen((q)), ["stars"]=q.stars, ["cash"]=q.cash, ["hand"]=__S1.handSize((q)), ["ctl"]=__S1.controlled(G, (i)), ["nm"]=__len(q.mach), ["cap"]=__call(q.mach, "reduce2", function(a, m)  
 do return __add(a, m.out) end
 end, (0)), ["idle"]=__len(__call(q.mach, "filter", (function(m)  
 do return (not __t(m.ran)) end
 end))), ["idleCap"]=__call(__call(q.mach, "filter", (function(m)  
 do return (not __t(m.ran)) end
-end)), "reduce", function(a, m)  
+end)), "reduce2", function(a, m)  
 do return __add(a, m.out) end
 end, (0)), ["adv"]=__len(q.adv)}, {"era", "prog", "len", "stars", "cash", "hand", "ctl", "nm", "cap", "idle", "idleCap", "adv"}) end
 end))}, {"r", "ps"})))
@@ -2439,7 +2451,7 @@ if __lt(__len(ks), 2) then
 do break end
 end
 w = __S1.ownerOf((c))
-tot = __call(ks, "reduce", function(a, k)  
+tot = __call(ks, "reduce2", function(a, k)  
 do return __add(a, __get(c.tok, k)) end
 end, (0))
 do __S1.ops = __num(__S1.ops) + 1 end
@@ -2487,7 +2499,7 @@ do break end
 end
 old = __get(__call(G.rrow, "splice", k, (1)), 0)
 __S1.fx(G, (__mkO({["k"]="mach", ["m"]=__mkO({["name"]="Experiment", ["tier"]=old.tier}, {"name", "tier"}), ["from"]=__add("rcard-", k), ["to"]="rdeck", ["gone"]=true}, {"k", "m", "from", "to", "gone"})))
-__call(G.rrow, "push", (nil))
+__call(G.rrow, "push1", (nil))
 __S1.refillRow(G, (__S1.RROW - 1), (nil))
 
 do d = __num(d) + 1 end
@@ -2559,7 +2571,7 @@ end
 c = __call(G.ideck, "pop")
 if __t(c) then
 local was
-__call(G.ideck, "unshift", (c))
+__call(G.ideck, "unshift1", (c))
 was = p.raided
 __S1.log(G, pi, (__t(c.x) and ("Word gets around. The Heat rises by " .. __str(c.x) .. ".") or "Nobody notices."), ((__t(c.x) and "dirty" or "news")))
 __S1.expose(G, pi, (c.x))
@@ -2589,14 +2601,14 @@ ctl = __call(G.players, "map", (function(_, j)
 do return __S1.controlled(G, (j)) end
 end))
 mtop = JS_Math.max(__unpack(__spreadA({{s=ctl}})))
-__call((function() local __v710 = G; local __v711 = "clog"; local __v709 = (__T(G.clog) or __mkA({__n=0})); __set(__v710, __v711, __v709) return __v709 end)(), "push", (__mkO({["pi"]=pi, ["r"]=G.round, ["id"]=G.pending.id, ["opt"]=i, ["risk"]=(not (not __t(o.risk))), ["gain"]=__spreadO({{s=(__T(o.gain) or __mkO({}, {}))}}), ["cost"]=__spreadO({{s=(__T(o.cost) or __mkO({}, {}))}}), ["mapLead"]=((__get(ctl, pi) == mtop) and (__len(__call(ctl, "filter", (function(x)  
+__call((function() local __v710 = G; local __v711 = "clog"; local __v709 = (__T(G.clog) or __mkA({__n=0})); __set(__v710, __v711, __v709) return __v709 end)(), "push1", (__mkO({["pi"]=pi, ["r"]=G.round, ["id"]=G.pending.id, ["opt"]=i, ["risk"]=(not (not __t(o.risk))), ["gain"]=__spreadO({{s=(__T(o.gain) or __mkO({}, {}))}}), ["cost"]=__spreadO({{s=(__T(o.cost) or __mkO({}, {}))}}), ["mapLead"]=((__get(ctl, pi) == mtop) and (__len(__call(ctl, "filter", (function(x)  
 do return (x == mtop) end
 end))) == 1))}, {"pi", "r", "id", "opt", "risk", "gain", "cost", "mapLead"})))
 end
 __S1.give(G, pi, o.gain, ("memo"))
 __S1.log(G, pi, (__str(__S1.co(G, (pi))) .. ", re: " .. __str(__call(m.title, "toLowerCase")) .. ". Resolved: " .. __str(__call(o.label, "toLowerCase")) .. "."), ("memo"))
 if __t(o.keep) then
-__call(p.inf, "push", (__mkO({["u"]=__add(100000, (function() local __v713 = G; local __v714 = "keepN"; local __v712 = __add((__T(G.keepN) or 0), 1); __set(__v713, __v714, __v712) return __v712 end)()), ["t"]=o.keep, ["x"]=0}, {"u", "t", "x"})))
+__call(p.inf, "push1", (__mkO({["u"]=__add(100000, (function() local __v713 = G; local __v714 = "keepN"; local __v712 = __add((__T(G.keepN) or 0), 1); __set(__v713, __v714, __v712) return __v712 end)()), ["t"]=o.keep, ["x"]=0}, {"u", "t", "x"})))
 __S1.fx(G, (__mkO({["k"]="inf", ["from"]="memo", ["to"]=__add("inf-", pi)}, {"k", "from", "to"})))
 end
 if __t(o.risk) then
@@ -2618,7 +2630,7 @@ do __S1.DECK0 = (__T(__S1.DECK0) or __S1.researchDeck()) end
 t = __call(__S1.DECK0, "filter", (function(d)  
 do return (d.tier == c.tier) end
 end))
-do return ((__call(t, "reduce", function(a, d)  
+do return ((__call(t, "reduce2", function(a, d)  
 do return __add(a, __S1.cardValue(G, p, d, (true))) end
 end, (0)) / __len(t))) end
 end
@@ -2700,7 +2712,7 @@ __S1.deficit = function(G, pi)  local p, w, d, spare
 p = __get(G.players, pi)
 w = __S1.wants(G, (pi))
 d = __mkO({}, {})
-spare = __call(__S1.FAMS, "reduce", function(a, f)  
+spare = __call(__S1.FAMS, "reduce2", function(a, f)  
 do return __add(a, JS_Math.max(0, ((__get(p.hand, f) - __get(w, f))))) end
 end, (0))
 for _, __v730 in __forof(__S1.FAMS) do
@@ -3106,7 +3118,7 @@ end
 if (__t(has(("reverse"))) or __t(has(("leak")))) then
 local tv, bt
 tv = function(tl)  
-do return __add((tl.st * 4), __call(JS_Object.entries((tl.get)), "reduce", function(a, __p1) local r, n; local __v750 = __get(__p1, 0); r = __v750; local __v751 = __get(__p1, 1); n = __v751;  
+do return __add((tl.st * 4), __call(JS_Object.entries((tl.get)), "reduce2", function(a, __p1) local r, n; local __v750 = __get(__p1, 0); r = __v750; local __v751 = __get(__p1, 1); n = __v751;  
 do return __add(a, ((__T(__get(__mkO({["out"]=1, ["free"]=4, ["rerun"]=3, ["inf"]=1.1, ["calm"]=0.5}, {"out", "free", "rerun", "inf", "calm"}), r)) or 1) * n)) end
 end, (0))) end
 end
@@ -3257,7 +3269,7 @@ do return (false) end
 end, ["res"]=function()  
 do return doResearch() end
 end, ["buy"]=function()  local worst, mg, mr, sh, mf, mv, bm, worstFlex
-if __lt(__S1.used((p)), __S1.SLOTS) then worst = nil else worst = __call(p.mach, "reduce", function(a, m, i)  
+if __lt(__S1.used((p)), __S1.SLOTS) then worst = nil else worst = __call(p.mach, "reduce2", function(a, m, i)  
 do return (((not __t(a)) or __lt(m.out, a.m.out)) and __mkO({["m"]=m, ["i"]=i}, {"m", "i"}) or a) end
 end, (nil)) end
 mg = __S1.gv(p, ("mGain"))
@@ -3276,7 +3288,7 @@ do return (function() local __v754 = (function() local __v755 = (__S1.canBuy(G, 
 end)), "sort", (function(a, b)  
 do return (mv((b.m)) - mv((a.m))) end
 end)), 0)
-if (__t(fx2) and __ge(__S1.used((p)), __S1.SLOTS)) then worstFlex = __call(p.mach, "reduce", function(a, m, i)  
+if (__t(fx2) and __ge(__S1.used((p)), __S1.SLOTS)) then worstFlex = __call(p.mach, "reduce2", function(a, m, i)  
 do return ((((not __t(a)) or ((not __t(flexy((m)))) and __t(flexy((a.m))))) or ((flexy((m)) == flexy((a.m))) and __lt(m.out, a.m.out))) and __mkO({["m"]=m, ["i"]=i}, {"m", "i"}) or a) end
 end, (nil)) else worstFlex = worst end
 if ((__t(bm) and (__lt(__S1.used((p)), __S1.SLOTS) or __t(worstFlex))) and (__lt(__S1.used((p)), __S1.SLOTS) or __ge(p.cash, __add(bm.m.price, __S1.gv(p, ("mFullCash")))))) then
@@ -3287,7 +3299,7 @@ end, ["adv"]=function()
 do return __S1.botAdvisor(G, (pi)) end
 end, ["ing"]=function()  local d, short
 d = __S1.deficit(G, (pi))
-short = __add(__call(__S1.FAMS, "reduce", function(a, f)  
+short = __add(__call(__S1.FAMS, "reduce2", function(a, f)  
 do return __add(a, __get(d, f)) end
 end, (0)), d.any)
 if __ge(p.cash, JS_Math.min(__S1.TAKE, (__S1.drawCost((p))))) then
@@ -3504,14 +3516,14 @@ end
 if ((R.cur ~= nil) and (R.cur ~= nil)) then
 do local __v786 = e; local __v787 = "in"; local __v788 = R.cur; __set(__v786, __v787, __v788) end
 end
-__call(R.ev, "push", (e))
+__call(R.ev, "push1", (e))
 end
 __S1.recRound = function(G)  local R
 R = __S1.recOn((G))
 if (not __t(R)) then
 do return end
 end
-__call(R.rounds, "push", (__mkO({["r"]=G.round, ["t"]=__S1.sec((R)), ["heat"]=G.heat, ["players"]=__call(G.players, "map", (function(p, i)  
+__call(R.rounds, "push1", (__mkO({["r"]=G.round, ["t"]=__S1.sec((R)), ["heat"]=G.heat, ["players"]=__call(G.players, "map", (function(p, i)  
 do return __spreadO({{s=__S1.snapP(G, (i))}, {k="tiles", v=__call((__T(p.tiles) or __mkA({__n=0})), "map", (function(c)  
 do return c.name end
 end))}, {k="infc", v=__call((__T(p.inf) or __mkA({__n=0})), "map", (function(c)  
@@ -3540,7 +3552,7 @@ do return (fn(__unpack(__spreadA({{v=G}, {s=args}})))) end
 end
 drift = __S1.recDelta((G))
 if __t(__len(JS_Object.keys((drift)))) then
-__call(R.ev, "push", (__mkO({["i"]=__len(R.ev), ["r"]=G.round, ["ph"]=G.phase, ["p"]=nil, ["k"]="drift", ["d"]=drift}, {"i", "r", "ph", "p", "k", "d"})))
+__call(R.ev, "push1", (__mkO({["i"]=__len(R.ev), ["r"]=G.round, ["ph"]=G.phase, ["p"]=nil, ["k"]="drift", ["d"]=drift}, {"i", "r", "ph", "p", "k", "d"})))
 end
 by = G.turn
 info = __mkO({}, {})
@@ -3554,7 +3566,7 @@ do info = __mkO({["err"]=JS_String((err))}, {"err"}) end
 end
 end
 A = __spreadO({{k="i", v=__len(R.ev)}, {k="r", v=G.round}, {k="ph", v=G.phase}, {k="p", v=by}, {k="a", v=name}, {k="t", v=__S1.sec((R))}, {k="hum", v=((__t(__get(G.players, by)) and (not __t((__get(G.players, by)).bot))) and 1 or 0)}, {s=info}})
-__call(R.ev, "push", (A))
+__call(R.ev, "push1", (A))
 prev = R.cur
 do local __v793 = R; local __v794 = "cur"; local __v795 = A.i; __set(__v793, __v794, __v795) end
 do __S1.recDepth = __num(__S1.recDepth) + 1 end
@@ -3604,16 +3616,16 @@ lines = __mkA({[0]=("SOUR EMPIRE GAME RECORD v" .. __str(__S1.RECV) .. " | build
 for _, __v806 in __forof(R.rounds) do
 local r
 r = __v806; 
-__call(lines, "push", (JS_JSON.stringify((__mkO({["round"]=r}, {"round"})))))
+__call(lines, "push1", (JS_JSON.stringify((__mkO({["round"]=r}, {"round"})))))
 
 end
 for _, __v808 in __forof(R.ev) do
 local e
 e = __v808; 
-__call(lines, "push", (JS_JSON.stringify((__mkO({["ev"]=e}, {"ev"})))))
+__call(lines, "push1", (JS_JSON.stringify((__mkO({["ev"]=e}, {"ev"})))))
 
 end
-__call(lines, "push", (JS_JSON.stringify((__mkO({["final"]=fin}, {"final"})))))
+__call(lines, "push1", (JS_JSON.stringify((__mkO({["final"]=fin}, {"final"})))))
 do return (__call(lines, "join", ("\n"))) end
 end
 __S1.ENV = (__T(((__typeof(JS_process) ~= "undefined") and JS_process.env)) or __mkO({}, {}))
@@ -3661,12 +3673,12 @@ __S1.yields = function(c)
 do return (__T(c.yield) or __mkA({[0]=0, 0, (0), __n=3})) end
 end
 __S1.cellYield = function(c)  
-do return __call(__call(__S1.yields((c)), "slice", 0, ((__T(c.imp) or 0))), "reduce", function(a, b)  
+do return __call(__call(__S1.yields((c)), "slice", 0, ((__T(c.imp) or 0))), "reduce2", function(a, b)  
 do return __add(a, b) end
 end, (0)) end
 end
 __S1.impIncome = function(G, pi)  
-do return __call(G.map.cells, "reduce", function(a, c)  
+do return __call(G.map.cells, "reduce2", function(a, c)  
 do return __add(a, (function() if (__S1.ownerOf((c)) == pi) then return __S1.cellYield((c)) end return 0 end)()) end
 end, (0)) end
 end
@@ -3779,7 +3791,7 @@ __S1.ICARD = __mkO({["recall"]=__mkO({["name"]="Product recall", ["text"]="A riv
 __S1.IDECK = __mkO({["recall"]=__mkA({[0]=0, 0, 1, 1, 1, (2), __n=6}), ["ha"]=__mkA({[0]=0, 0, 0, 1, 1, 1, 1, (2), __n=8}), ["judge"]=__mkA({[0]=0, 0, (1), __n=3}), ["subsidy"]=__mkA({[0]=0, 0, 1, (1), __n=4}), ["contract"]=__mkA({[0]=0, 0, 1, (1), __n=4}), ["spy"]=__mkA({[0]=0, 1, (1), __n=3}), ["reverse"]=__mkA({[0]=0, 1, (1), __n=3}), ["patent"]=__mkA({[0]=0, 1, 1, (2), __n=4}), ["viral"]=__mkA({[0]=0, 1, (1), __n=3}), ["proxy"]=__mkA({[0]=0, 1, (1), __n=3}), ["buyback"]=__mkA({[0]=0, (1), __n=2}), ["act"]=__mkA({[0]=1, (2), __n=2}), ["regime"]=__mkA({[0]=1, (2), __n=2}), ["formula"]=__S1.arr("IFO", ("0,1,1,2")), ["antitrust"]=__S1.arr("IAT", ("1,1,2"))}, {"recall", "ha", "judge", "subsidy", "contract", "spy", "reverse", "patent", "viral", "proxy", "buyback", "act", "regime", "formula", "antitrust"})
 __S1.MEMOS = __mkA({__n=0})
 __S1.memo = function(title, body, opts)  
-do return __call(__S1.MEMOS, "push", (__mkO({["id"]=__len(__S1.MEMOS), ["title"]=title, ["body"]=body, ["opts"]=opts}, {"id", "title", "body", "opts"}))) end
+do return __call(__S1.MEMOS, "push1", (__mkO({["id"]=__len(__S1.MEMOS), ["title"]=title, ["body"]=body, ["opts"]=opts}, {"id", "title", "body", "opts"}))) end
 end
 __S1.memo("Competitive entry", "Tyler (8) has opened a competing stand directly across the street. His sign is better than yours.", (__mkA({[0]=__mkO({["label"]="Ignore him and focus on the core business", ["gain"]=__mkO({["cash"]=2}, {"cash"})}, {"label", "gain"}), __mkO({["label"]="Inform his mother of the sugar content", ["gain"]=__mkO({["card"]=2}, {"card"}), ["note"]="He is grounded. His lemons are yours."}, {"label", "gain", "note"}), __mkO({["label"]="Tell the street his lemonade had a bug in it", ["gain"]=__mkO({["cash"]=3, ["loy"]=2}, {"cash", "loy"}), ["risk"]=1, ["note"]="It did, briefly."}, {"label", "gain", "risk", "note"}), (__mkO({["label"]="Keep this memo. Find out what is in Tyler's recipe later", ["keep"]="leak", ["note"]="Kept with your influence cards."}, {"label", "keep", "note"})), __n=4})))
 __S1.memo("Regulatory inquiry", "Mrs. Okafor at number 14 has asked whether you \"have a permit for this.\"", (__mkA({[0]=__mkO({["label"]="Offer her a complimentary cup", ["gain"]=__mkO({["loy"]=2}, {"loy"})}, {"label", "gain"}), __mkO({["label"]="Read the municipal code", ["gain"]=__mkO({["cash"]=3}, {"cash"})}, {"label", "gain"}), __mkO({["label"]="Draw her a permit in crayon", ["gain"]=__mkO({["cash"]=5}, {"cash"}), ["risk"]=1, ["note"]="It is very convincing."}, {"label", "gain", "risk", "note"}), (__mkO({["label"]="Keep this memo. Ask to see the other stands' permits later", ["keep"]="leak", ["note"]="Kept with your influence cards."}, {"label", "keep", "note"})), __n=4})))
@@ -3830,7 +3842,7 @@ __S1.uid = 1
 __S1.ops = 0
 __S1.fx = function(G, e)  
 if __t(G.fxOn) then
-__call((function() local __v840 = G; local __v841 = "fx"; local __v839 = (__T(G.fx) or __mkA({__n=0})); __set(__v840, __v841, __v839) return __v839 end)(), "push", (e))
+__call((function() local __v840 = G; local __v841 = "fx"; local __v839 = (__T(G.fx) or __mkA({__n=0})); __set(__v840, __v841, __v839) return __v839 end)(), "push1", (e))
 end
 end
 __S1.PI = function(G, p)  
@@ -3942,7 +3954,7 @@ w = __add(1, JS_Math.floor(((h / 2))))
 do return ((__str(w) .. __str((__t(__mod(h, 2)) and "½" or "")) .. " star" .. __str((((w == 1) and (not __t(__mod(h, 2)))) and "" or "s")))) end
 end
 __S1.handSize = function(p)  
-do return __call(__S1.FAMS, "reduce", function(a, f)  
+do return __call(__S1.FAMS, "reduce2", function(a, f)  
 do return __add(a, __get(p.hand, f)) end
 end, (0)) end
 end
@@ -3957,7 +3969,7 @@ do return __S1.hasA(q, ("elle")) end
 end))) and 1 or 0))))) end
 end
 __S1.onMap = function(G, pi)  
-do return __call(G.map.cells, "reduce", function(a, c)  
+do return __call(G.map.cells, "reduce2", function(a, c)  
 do return __add(a, __S1.toks(c, (pi))) end
 end, (0)) end
 end
@@ -4030,7 +4042,7 @@ __S1.DEEPT = __S1.num("DEEPT", (2))
 __S1.DEEPK = __S1.num("DEEPK", (2))
 
 __S1.rbonus = function(G, p, f)  
-do return __call((__T(p.tiles) or __mkA({__n=0})), "reduce", function(a, c)  
+do return __call((__T(p.tiles) or __mkA({__n=0})), "reduce2", function(a, c)  
 do return __add(a, (function() if ((__t(c.bonus) and (c.bonus.f == f)) and __t(__S1.condOK(G, p, (c.bonus.cond)))) then return c.bonus.n end return 0 end)()) end
 end, (0)) end
 end
@@ -4090,7 +4102,7 @@ end
 
 __S1.lt = function(G, pi, src, n)  
 if (__t(__S1.TRACE) and __t(n)) then
-__call((function() local __v852 = G; local __v853 = "lt"; local __v851 = (__T(G.lt) or __mkA({__n=0})); __set(__v852, __v853, __v851) return __v851 end)(), "push", (__mkO({["pi"]=pi, ["r"]=G.round, ["src"]=src, ["n"]=n}, {"pi", "r", "src", "n"})))
+__call((function() local __v852 = G; local __v853 = "lt"; local __v851 = (__T(G.lt) or __mkA({__n=0})); __set(__v852, __v853, __v851) return __v851 end)(), "push1", (__mkO({["pi"]=pi, ["r"]=G.round, ["src"]=src, ["n"]=n}, {"pi", "r", "src", "n"})))
 end
 end
 
@@ -4279,7 +4291,7 @@ end
 __S1.DECK0 = nil
 
 __S1.held = function(p, cond)  
-do return __call((__T(p.tiles) or __mkA({__n=0})), "reduce", function(a, c)  
+do return __call((__T(p.tiles) or __mkA({__n=0})), "reduce2", function(a, c)  
 do return __add(a, (function() if (__t(c.bonus) and (c.bonus.cond == cond)) then return c.bonus.n end return 0 end)()) end
 end, (0)) end
 end
@@ -4525,6 +4537,7 @@ local function deserialize(s)
   end
   return val()
 end
+__SE_SER = { s = function(v) return serialize(v) end, d = function(s) return deserialize(s) end }
 function utf8char(c)
   if c < 0x800 then return string.char(0xC0 + math.floor(c / 64), 0x80 + c % 64) end
   return string.char(0xE0 + math.floor(c / 4096), 0x80 + math.floor(c / 64) % 64, 0x80 + c % 64)
@@ -5129,8 +5142,9 @@ function uiSetup(player, value, id)
   if k == 'np' then S.setup.np = tonumber(v) elseif k == 'speed' then S.setup.speed = tonumber(v) else S.setup[k] = v end
   lastXml = nil; refreshUI()
 end
+local function trace(e) local okd, tb = pcall(function() return debug.traceback(tostring(e), 2) end); return okd and tb or tostring(e) end
 function uiStart(player)
-  local okk, err = pcall(function()
+  local okk, err = xpcall(function()
     S.np = S.setup.np; S.mode = S.setup.mode; S.speed = S.setup.speed; S.anyone = S.setup.anyone == 'yes'
     S.seats = seatsFromSetup(); S.log = {}; S.wroteEnd = false
     clearAll(); boardsUp(S.np)
@@ -5139,8 +5153,8 @@ function uiStart(player)
       Wait.time(function() sync() end, 1.5)
     else S.G = nil; S.deal = G; Wait.time(function() dealPhysical(G); recPush({ what = 'setup', seats = S.seats, mode = S.mode }); snapshot('start'); refreshUI() end, 1.5) end
     lastXml = nil; refreshUI()
-  end)
-  if not okk then broadcastToAll('Setup error: ' .. tostring(err), { 1, 0.4, 0.4 }) end
+  end, trace)
+  if not okk then broadcastToAll('Setup error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
 end
 function uiRecord(player) local okk, err = pcall(writeNotebook); if not okk then broadcastToAll('Record error: ' .. tostring(err), { 1, 0.4, 0.4 }) end end
 function uiNew(player)

@@ -47,4 +47,11 @@ Bots need full rules. *Champion* bots are the three best genomes from the tuner 
 
 - **The engine.** 57 seeded bot games ran in both the JavaScript and the Lua engine and matched after every action, with the record on and off. They covered 2 and 3 players, every hand-written bot style and the evolved champions. The copied record matches the browser's line for line, except that keys whose value is null are left out.
 - **The table script.** It ran against a stand-in for Tabletop Simulator's API: full-rules games from setup to a winner, with a scripted human clicking panel and market buttons against every kind of bot. There were no script errors and every panel was valid XML. A game saved and reloaded mid-way came back identical. The arithmetic and log-only modes wrote records that parse.
-- **Not yet checked inside Tabletop Simulator itself.** Expect to adjust piece positions, button sizes and board scale after the first load.
+- **MoonSharp, the Lua inside Tabletop Simulator.** Built from source and run here, because it differs from standard Lua in ways that broke the first build:
+  - `math.fmod(3, 5)` gives -2;
+  - `NaN > 0` is true;
+  - a function called with no arguments reports one nil argument;
+  - `table.unpack` misreads ranges that start at 0.
+
+  The runtime now works around all four. Seeded bot games in MoonSharp match the JavaScript engine's final state exactly. Table games, save and reload, and the manual modes run without errors. The test bench is in `src/moonsharp/`.
+- **Not yet checked by eye inside Tabletop Simulator.** Expect to adjust piece positions, button sizes and board scale after the first load.
