@@ -147,6 +147,16 @@ local function spawnFrom(key, data, after)
   objs[key] = o; return o
 end
 local function tileOf(key, name, p) want[key] = { kind = 'tile', card = name, p = p, rot = 0 } end
+local function token(key, img, p, d) want[key] = { kind = 'token', card = img, p = p, rot = 0, d = d or 0.8 } end
+-- an amount as coins or loyalty tokens: 5s then 1s, in stacks of up to five across the box
+local function pieces(prefix, img, amount, at, boxW)
+  amount = math.max(0, math.floor(amount or 0)); local fives, ones = math.floor(amount / 5), amount % 5
+  local list = {}; for i = 1, fives do list[#list + 1] = img .. '-5' end; for i = 1, ones do list[#list + 1] = img .. '-1' end
+  local per = 5; local stacks = math.max(1, math.ceil(#list / per)); if stacks > 4 then per = math.ceil(#list / 4); stacks = 4 end
+  local gap = math.min(0.85, (boxW - 0.9) / math.max(1, stacks - 1))
+  for i, im in ipairs(list) do local st = math.floor((i - 1) / per); local h = (i - 1) % per
+    token(prefix .. i, im, at(-(stacks - 1) * gap / 2 + st * gap, h * 0.09), 0.78) end
+end
 local function card(key, cardKey, p, opt) opt = opt or {}
   want[key] = { kind = 'card', card = cardKey, p = p, rot = opt.rot or 0, sc = opt.sc or { CS, CS }, flip = opt.flip, hand = opt.hand, tap = opt.tap, label = opt.label } end
 local function chip(key, col, p, sc) want[key] = { kind = 'chip', col = col, p = p, sc = sc or 0.55 } end
@@ -155,6 +165,11 @@ local function text(key, s, p, rot, size, col) want[key] = { kind = 'text', s = 
 
 local function colorOf(c) if type(c) == 'string' then local r = RGB[c] or { 1, 1, 1 }; return { r = r[1], g = r[2], b = r[3] } end return { r = c[1], g = c[2], b = c[3] } end
 local function spawnWanted(key, w)
+  if w.kind == 'token' then
+    local k = (S.tileScale or 1.4) * w.d / 2.85
+    return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, 0, { k, k }), Locked = true, GMNotes = 'se|' .. key, Nickname = w.card:find('coin') and 'Capital' or 'Loyalty',
+      CustomImage = { ImageURL = IMG .. w.card .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = true, Stretch = true } } })
+  end
   if w.kind == 'tile' then
     local k = S.tileScale or 1.4
     return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, 0, { k, k }), Locked = true, GMNotes = 'se|' .. key,
@@ -291,10 +306,12 @@ local function buildWant()
     for k = 0, cover - 1 do local sp = E.TX - 1 - k; chip('cover:' .. pi .. ':' .. k, k < cont and { 0.12, 0.42, 0.29 } or { 0.96, 0.77, 0.19 }, slot(mat, 'trk' .. sp), 0.5) end
     local hand = p.hand
     text('lab:name:' .. pi, (p.name or SEATCOL[pi + 1]) .. ' · era ' .. p.era .. (p.bot and ' (bot)' or ''), slot(mat, 'name', 0, -0.1), B.rot, 52, SEATCOL[pi + 1])
-    text('lab:cash:' .. pi, tostring(p.cash), slot(mat, 'cash', 0, -0.1), B.rot, 76)
-    text('lab:loy:' .. pi, tostring(p.loy), slot(mat, 'loy', 0, -0.1), B.rot, 76)
+    local function boxAt(name) return function(du, dy) return slot(mat, name, du, 0.25, 0.05 + dy) end end
+    local bw = BOARD[mat].L.slots.cash[3]
+    pieces('cash:' .. pi .. ':', 'coin', p.cash, boxAt('cash'), bw)
+    pieces('loy:' .. pi .. ':', 'heart', p.loy, boxAt('loy'), bw)
     text('lab:stars:' .. pi, E.starText(p.stars), slot(mat, 'stars', 0, -0.05), B.rot, 48)
-    text('lab:imp:' .. pi, tostring(p.imp or 0), slot(mat, 'imp', 0, -0.1), B.rot, 76)
+    for k = 1, math.min(p.imp or 0, 8) do local n = (p.imp or 0); local gap = math.min(0.8, (bw - 0.9) / math.max(1, n - 1)); chip('impl:' .. pi .. ':' .. k, 'gold', slot(mat, 'imp', -(math.min(n, 8) - 1) * gap / 2 + (k - 1) * gap, 0.25, 0.05), 0.42) end
     text('lab:hand:' .. pi, (hand.sweet or 0) .. '/' .. (hand.sour or 0) .. '/' .. (hand.herb or 0) .. '/' .. (hand.fizz or 0), slot(mat, 'hand', 0, -0.05), B.rot, 46)
     text('lab:inf:' .. pi, tostring(alen(p.inf)), slot(mat, 'inf', 0, -0.1), B.rot, 76)
     text('lab:note:' .. pi, (p.prog .. ' of ' .. tl .. ' pitchers to era ' .. (p.era + 1)) .. (p.jail and '\nIn custody' or ''), slot(mat, 'note', 0, -0.1), B.rot, 34)
@@ -330,10 +347,11 @@ local function cardActions()
   local G = S.G; if G.winner ~= nil then return out end
   local a = actor(); if not S.seats[a + 1].human then return out end
   local p = P(a)
-  if G.pending or G.offer or ui.scrapFor or ui.disc or ui.sel then return out end
+  if G.pending or G.offer or ui.scrapFor or ui.disc or ui.sel or ui.pay then return out end
   if G.choice then for i, c in each(G.choice.cards) do if not c.taken then out['choice:' .. i] = { 'Keep', 'pick_' .. i } end end return out end
   if G.phase == 'biz' then
     if ok(E.canDraw(G)) then out['deck:ing'] = { 'Buy 3, keep 1' .. costTxt(E.canDraw(G)), 'draw' } end
+    if ok(E.canLobby(G)) then out['deck:inf'] = { 'Buy influence' .. costTxt(E.canLobby(G)), 'lobby' } end
     for _, f in ipairs(FAMS) do local x = E.canTake(G, f); if ok(x) then out['pile:' .. f] = { 'Buy' .. costTxt(x), 'take_' .. f } end end
     for i, m in each(G.mkt) do local x = E.canBuy(G, i); if ok(x) then out['mkt:' .. i] = { 'Buy' .. costTxt(x), 'buy_' .. i } end end
     for k = 0, alen(G.rrow) - 1 do if G.rrow[k] then local x = E.canResearch(G, k); if ok(x) then out['rrow:' .. k] = { 'Research', 'research_' .. k } end end end
@@ -377,6 +395,13 @@ local function buildActions()
     return end
   if G.choice then dialog = 'Click the card you keep, among the three you turned over.'
     for i, c in each(G.choice.cards) do if not c.taken then B('pick_' .. i, 'Keep ' .. c.n .. ' (' .. E.FNAME[c.f] .. ')', nil, 'answer') end end return end
+  if ui.pay then local Y = ui.pay; local got, parts = 0, {}
+    for _, f in ipairs(FAMS) do local n = Y.chosen[f] or 0; got = got + n; if n > 0 then parts[#parts + 1] = n .. ' ' .. E.FNAME[f] end end
+    dialog = 'This research takes ' .. Y.need .. ' card' .. (Y.need > 1 and 's' or '') .. ' of any kind. Choose which to discard: ' .. (#parts > 0 and table.concat(parts, ', ') or 'none yet') .. ' (' .. got .. ' of ' .. Y.need .. ').'
+    if got < Y.need then for _, f in ipairs(FAMS) do local left = (p.hand[f] or 0) - (Y.chosen[f] or 0); if left > 0 then B('payadd_' .. f, 'Discard ' .. E.FNAME[f] .. ' (' .. left .. ' in hand)', nil, 'answer') end end end
+    if got > 0 then B('payclear', 'Start over', nil, 'answer') end
+    if got == Y.need then B('payok', 'Research with these', nil, 'answer') end
+    B('payno', 'Cancel', nil, 'answer'); return end
   if ui.scrapFor then dialog = 'Your floor is full. Free a slot: a machine goes to your shelf; an advisor leaves.'
     for i, m in each(p.mach) do B('scrap_' .. i, 'Scrap ' .. m.name, nil, 'answer') end
     for i, ad in each(p.adv) do B('scrap_a' .. i, 'Let ' .. ad.name .. ' go', nil, 'answer') end
@@ -396,14 +421,11 @@ local function buildActions()
       B('nosel', 'Cancel', nil, 'answer') end
     return end
   if G.phase == 'biz' then
-    dialog = 'Click a card to act: buy a machine or ingredients, research, hire, or run one of your machines. One thing a turn.'
-    B('draw', 'Buy three, keep one', E.canDraw(G), 'ingredients')
-    for _, f in ipairs(FAMS) do B('take_' .. f, 'Buy ' .. E.FNAME[f] .. ' from the pile', E.canTake(G, f), 'ingredients') end
+    dialog = 'Click a card to act: buy a machine, ingredients (deck or piles) or influence (its deck), research, hire, or run one of your machines. One thing a turn.'
     if ok(E.canBail(G)) then B('bail', 'Post bail', E.canBail(G), 'more') end
     for i, m in each(p.mach) do
       B('frun_' .. i, 'Free run: ' .. m.name, E.canRun(G, i, 'free'), 'more'); B('rerun_' .. i, 'Re-run ' .. m.name, E.canRun(G, i, 'rerun'), 'more'); B('hal_' .. i, 'HAL runs ' .. m.name, E.canRun(G, i, true), 'more') end
     for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }, 'influence') end
-    B('lobby', 'Buy influence', E.canLobby(G), 'influence')
     B('sell_1', 'Sell Paul 1 Acidic', E.canSell(G), 'more'); if (p.hand.sour or 0) >= 2 then B('sell_2', 'Sell Paul 2 Acidic', E.canSell(G), 'more') end
     for pi, q in each(G.players) do if pi ~= a then for k, ad in each(q.adv) do B('poach_' .. pi .. '_' .. k, 'Hire away ' .. ad.name, E.canHire(G, k, pi), 'more'); B('hit_' .. pi .. '_' .. k, 'Hit ' .. ad.name, E.canHit(G, pi, k), 'more') end end end
     for i, m in each(p.mach) do if ok(E.canScrap(G, i)) then B('mscrap_' .. i, 'Scrap ' .. m.name, nil, 'scrap') end end
@@ -532,7 +554,14 @@ local function doAct(id)
   elseif cmd == 'noscrap' then ui.scrapFor = nil
   elseif cmd == 'hit' then acted = E.hit(G, num(r1), num(r2))
   elseif cmd == 'mscrap' then acted = E.scrapM(G, num(r1))
-  elseif cmd == 'research' then acted = E.research(G, num(r1))
+  elseif cmd == 'research' then local k = num(r1); local need = E.researchPay(G, k) or 0; local fams = 0
+    for _, f in ipairs(FAMS) do if (p.hand[f] or 0) > 0 then fams = fams + 1 end end
+    if need > 0 and fams > 1 then ui.pay = { k = k, need = need, chosen = {} } else acted = E.research(G, k) end
+  elseif cmd == 'payadd' then local Y = ui.pay; Y.chosen[r1] = (Y.chosen[r1] or 0) + 1
+  elseif cmd == 'payclear' then ui.pay.chosen = {}
+  elseif cmd == 'payno' then ui.pay = nil
+  elseif cmd == 'payok' then local Y = ui.pay; local list = {}; for _, f in ipairs(FAMS) do for i = 1, (Y.chosen[f] or 0) do list[#list + 1] = f end end
+    ui.pay = nil; acted = E.research(G, Y.k, nil, jsA(list)); if not acted then broadcastToColor('Those cards do not pay for it.', SEATCOL[a + 1], { 1, 0.6, 0.6 }) end
   elseif cmd == 'bail' then acted = E.bail(G)
   elseif cmd == 'lobby' then acted = E.lobby(G)
   elseif cmd == 'sell' then acted = E.sell(G, num(r1))
@@ -586,6 +615,19 @@ local function newEngineGame()
     list[i] = jsO(o, keys) end
   return E.newGame(jsA(list))
 end
+-- a loose coin or loyalty token for the manual modes
+local function pieceData(img, n, p)
+  local k = (S.tileScale or 1.4) * 0.78 / 2.85
+  return { Name = 'Custom_Tile', Transform = tf(p, 0, { k, k }), Locked = false, GMNotes = 'se|' .. img .. ':' .. n, Nickname = (img == 'coin' and 'Capital ' or 'Loyalty ') .. n,
+    CustomImage = { ImageURL = IMG .. img .. '-' .. n .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = true, Stretch = true } } }
+end
+-- put an amount into a company's box as 5s and 1s
+local function payPieces(img, amount, col, slotName)
+  local pi; for i, c in ipairs(SEATCOL) do if c == col then pi = i - 1 end end; if not pi or amount <= 0 then return end
+  local mat = 'mat' .. pi; local fives, ones = math.floor(amount / 5), amount % 5; local n = 0
+  local function one(v) local du = -1.0 + (n % 4) * 0.66; local q = slot(mat, slotName, du, 0.3, 0.6 + math.floor(n / 4) * 0.15); n = n + 1; spawnObjectData({ data = pieceData(img, v, q) }) end
+  for i = 1, fives do one(5) end; for i = 1, ones do one(1) end
+end
 -- manual modes: the same deal as the engine's, laid out as loose pieces players move themselves
 local function dealPhysical(G)
   want = {}
@@ -624,7 +666,8 @@ local function dealPhysical(G)
     local d = cardData('m', 'mach:hands', slot(mat, 'floor0'), B.rot, { CS, CS }, false, false); d.GMNotes = 'se|c:mach:hands'; objs['start:' .. pi] = spawnObjectData({ data = d })
     local ht = Player[col].getHandTransform and Player[col].getHandTransform()
     if ht then for _, f in ipairs(FAMS) do for k = 1, (p.hand[f] or 0) do local h = cardData('h', 'ing:' .. f .. ':' .. E.FLAVOR[f][(k - 1) % 5], { x = ht.position.x, y = ht.position.y + 2, z = ht.position.z }, B.rot, { CS, CS }, false, false); h.GMNotes = 'se|c:ing:' .. f; spawnObjectData({ data = h, callback_function = function(obj) Wait.condition(function() pcall(function() obj.deal(1, col) end) end, function() return loaded(obj) end, 10) end }) end end end
-    for _, st in ipairs({ { 'cash', p.cash }, { 'loy', p.loy }, { 'stars', 0 }, { 'imp', 0 } }) do
+    payPieces('coin', p.cash, col, 'cash'); payPieces('heart', p.loy, col, 'loy')
+    for _, st in ipairs({ { 'stars', 0 }, { 'imp', 0 } }) do
       local q = slot(mat, st[1], 0, 0.15, 0.1)
       objs['ctr:' .. pi .. ':' .. st[1]] = spawnObjectData({ data = { Name = 'Counter', Transform = tf(q, B.rot, { 0.9, 0.9 }), GMNotes = 'se|ctr:' .. col .. ':' .. st[1], Counter = { value = st[2] } }, callback_function = function(o) if o.Counter then o.Counter.setValue(st[2]) end end })
     end
@@ -633,6 +676,11 @@ local function dealPhysical(G)
     objs['era:' .. pi] = spawnObjectData({ data = { Name = 'PlayerPawn', Transform = tf(slot(mat, 'era1'), 0, { 0.45, 0.45 }), ColorDiffuse = colorOf(col), Nickname = col .. ' era', GMNotes = 'se|era:' .. col } })
     objs['prog:' .. pi] = spawnObjectData({ data = { Name = 'Checker_white', Transform = tf(slot(mat, 'trk0', -0.9), 0, { 0.6, 0.6 }), ColorDiffuse = colorOf(col), Nickname = col .. ' era track', GMNotes = 'se|prog:' .. col } })
     for k = 1, (p.cont or 0) do objs['cont:' .. pi .. ':' .. k] = spawnObjectData({ data = { Name = 'Chip_10', Transform = tf(slot(mat, 'trk' .. (E.TX - k), 0, 0, 0.2), 0, { 0.5, 0.5 }), ColorDiffuse = { r = 0.12, g = 0.42, b = 0.29 }, Nickname = 'control token', GMNotes = 'se|cont:' .. col } }) end
+  end
+  for i, sp in ipairs({ { 'coin', 1 }, { 'coin', 5 }, { 'heart', 1 }, { 'heart', 5 } }) do
+    local d = pieceData(sp[1], sp[2], { x = 0, y = 0, z = 0 })
+    objs['supply:' .. i] = spawnObjectData({ data = { Name = 'Infinite_Bag', Transform = tf(slot('common', 'status', -6 + (i - 1) * 2.4, 0.2, 0.3), 0, { 0.75, 0.75 }),
+      ColorDiffuse = sp[1] == 'coin' and { r = 0.89, g = 0.67, b = 0.11 } or { r = 0.85, g = 0.28, b = 0.23 }, Nickname = (sp[1] == 'coin' and 'Capital ' or 'Loyalty ') .. sp[2] .. 's', GMNotes = 'se|supply', ContainedObjects = { d } } })
   end
   objs['bag:gold'] = spawnObjectData({ data = { Name = 'Infinite_Bag', Transform = tf(slot('common', 'status', -6.5, 0.6, 0.3), 0, { 0.8, 0.8 }), ColorDiffuse = { r = 0.89, g = 0.67, b = 0.11 }, Nickname = 'Capital tokens',
     ContainedObjects = { { Name = 'Chip_1000', ColorDiffuse = { r = 0.89, g = 0.67, b = 0.11 }, Transform = tf({ x = 0, y = 0, z = 0 }, 0, { 0.42, 0.42 }), GMNotes = 'se|imp' } } } })
@@ -654,7 +702,11 @@ end
 local function counters()
   local out = {}
   for _, o in ipairs(getObjects()) do local note = o.getGMNotes and o.getGMNotes() or ''
-    local col, what = note:match('^se|ctr:(%a+):(%a+)$'); if col and o.Counter then out[col] = out[col] or { objs = {} }; out[col][what] = o.Counter.getValue(); out[col].objs[what] = o end end
+    local col, what = note:match('^se|ctr:(%a+):(%a+)$'); if col and o.Counter then out[col] = out[col] or { objs = {} }; out[col][what] = o.Counter.getValue(); out[col].objs[what] = o end
+    local img, v = note:match('^se|(%a+):(%d)$')
+    if (img == 'coin' or img == 'heart') then local w = where(o.getPosition()); local c2, sl = w:match('^(%a+):(%a+)$')
+      if c2 and RGB[c2] and ((img == 'coin' and sl == 'cash') or (img == 'heart' and sl == 'loy')) then out[c2] = out[c2] or { objs = {} }; out[c2][sl] = (out[c2][sl] or 0) + tonumber(v) end end end
+  for _, col in ipairs(SEATCOL) do if out[col] then out[col].cash = out[col].cash or 0; out[col].loy = out[col].loy or 0 end end
   return out
 end
 local function controlOf(cell) local best, who, tie = 0, nil, false
@@ -687,7 +739,7 @@ function uiPayday(player)
   local lines = {}
   for col, r in pairs(res) do local pay = E.income(r.markets) + r.tokens
     lines[#lines + 1] = col .. ': ' .. r.markets .. ' markets, +' .. pay .. ' Capital (' .. E.INCB .. ' base + ' .. (E.INCK * r.markets) .. ' markets + ' .. r.tokens .. ' from capital tokens). Advisor payday effects are not counted.'
-    if ctr[col] and ctr[col].objs.cash then ctr[col].objs.cash.Counter.setValue((ctr[col].cash or 0) + pay) end
+    payPieces('coin', pay, col, 'cash')
     recPush({ what = 'payday', who = col, markets = r.markets, pay = pay, tokens = r.tokens }) end
   table.sort(lines); broadcastToAll('Payday. ' .. table.concat(lines, '  '), { 1, 0.9, 0.5 }); snapshot('payday')
 end
@@ -696,7 +748,7 @@ function uiStipend(player)
   for _, o in ipairs(getObjects()) do local note = o.getGMNotes and o.getGMNotes() or ''; local col = note:match('^se|era:(%a+)$')
     if col then local w = where(o.getPosition()); local era = tonumber((w:match(':era(%d+)$')) or 1) or 1
       local add = E.LOYE[era - 1] or 1; local ctr = counters()[col]
-      if ctr and ctr.objs.loy then ctr.objs.loy.Counter.setValue((ctr.loy or 0) + add) end
+      payPieces('heart', add, col, 'loy')
       lines[#lines + 1] = col .. ' (era ' .. era .. ') +' .. add; recPush({ what = 'stipend', who = col, era = era, add = add }) end end
   table.sort(lines); broadcastToAll('Loyalty for the map: ' .. table.concat(lines, ', ') .. '. Underdog and advisor bonuses are not counted.', { 1, 0.9, 0.5 })
 end

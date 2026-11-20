@@ -33,7 +33,7 @@ Bots need full rules. *Champion* bots are the three best genomes from the tuner 
 ## What is in the repository
 
 - `SourEmpire.json`: the save file. This is all you need to play.
-- `img/v3/`: the card sheets and boards, drawn from the engine's data. Tabletop Simulator loads them from this repository, so it must stay public.
+- `img/v4/`: the card sheets and boards, drawn from the engine's data. Tabletop Simulator loads them from this repository, so it must stay public.
 - `src/`: how it is built.
   - `engine.js`: the engine, as used in the browser.
   - `js2lua/`: the compiler from the engine's JavaScript to Lua, and the Lua runtime that keeps JavaScript's rules (arrays start at 0, `0` and `""` are false, sorting is stable).

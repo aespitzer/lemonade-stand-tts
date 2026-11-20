@@ -50,7 +50,7 @@ def play(L, rnd, max_steps=4000, save_at=None):
         human_acts += 1
         if tiles and rnd.random() < 0.85:
             o = rnd.choice(tiles); G.onCardClick(o, 'Red', False); continue
-        prefer = [i for i in ids if re.match(r'(memo|pick|otake|opass|run|research|buy|draw|take|hire|scrap|tgt|dpick|dok|impmode|sell|frun|rerun)', i)]
+        prefer = [i for i in ids if re.match(r'(memo|pick|otake|opass|run|research|buy|draw|take|hire|scrap|tgt|dpick|dok|impmode|sell|frun|rerun|payadd|payok)', i)]
         pool = prefer if prefer and rnd.random() < 0.8 else ids
         choice = rnd.choice(pool)
         G.uiAct(L.table_from({'color': 'Red'}), '', 'a_' + choice)

@@ -17,6 +17,8 @@ const CSS = `${FONTS}*{box-sizing:border-box;margin:0;padding:0}body{background:
 .sm{position:absolute;font:24px/1.2 "IBM Plex Sans";color:#5a4a3a}
 .box{position:absolute;border:4px solid #2b1a14;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 34px/1 BitterB,serif;background:rgba(255,255,255,.55)}
 .box small{position:absolute;top:4px;left:6px;font:17px/1 PlexB;color:#7b5a4e}
+.ic{display:inline-block;vertical-align:-.16em;width:1em;height:1em}.ic svg{width:100%;height:100%;display:block}
+.box .ly{position:absolute;bottom:5px;right:8px;display:flex;align-items:center;gap:3px;font:700 21px/1 BitterB,serif;color:#b3261e}
 `;
 const L = {}; // layout: board -> { w, h, slots: {name: [cx, cy, w, h]} }
 const u = v => v * PX;
@@ -73,11 +75,11 @@ function mat(color, ci) {
   s.stars = [1.6, 4.85, 2.6, 1.6]; s.imp = [4.4, 4.85, 2.6, 1.6]; s.hand = [1.6, 6.8, 2.6, 1.6]; s.inf = [4.4, 6.8, 2.6, 1.6]; s.note = [3.0, 8.6, 5.4, 1.4];
   L.mat = { w: W, h: H, slots: s };
   const bands = E.BANDS.map((b, i) => `<div class="sm" style="left:${u(7.0 + (b.from - 1) * 1.85 - 0.85)}px;top:${u(0.0)}px;font:18px/1 PlexB;letter-spacing:.06em;text-transform:uppercase">${b.name}</div>`).join('');
-  const eras = Array.from({ length: 12 }, (_, i) => { const [cx, cy, w, h] = s['era' + (i + 1)]; return `<div class="box" style="left:${u(cx - w / 2)}px;top:${u(cy - h / 2)}px;width:${u(w)}px;height:${u(h)}px">${i + 1}<small>${C.ic('loy', 0.9)}${E.LOYE ? '' : ''}</small></div>`; }).join('');
+  const eras = Array.from({ length: 12 }, (_, i) => { const [cx, cy, w, h] = s['era' + (i + 1)]; return `<div class="box" style="left:${u(cx - w / 2)}px;top:${u(cy - h / 2)}px;width:${u(w)}px;height:${u(h)}px;padding-bottom:22px">${i + 1}<span class="ly">${C.ic('loy', 1)}+${E.LOYE[i]}</span></div>`; }).join('');
   const trk = Array.from({ length: E.TX }, (_, k) => { const [cx, cy, w, h] = s['trk' + k]; return `<div class="box" style="left:${u(cx - w / 2)}px;top:${u(cy - h / 2)}px;width:${u(w)}px;height:${u(h)}px;font-size:24px;color:#7b5a4e">${k + 1}</div>`; }).join('');
   const stat = (k, t) => { const [cx, cy, w, h] = s[k]; return `<div class="box" style="left:${u(cx - w / 2)}px;top:${u(cy - h / 2)}px;width:${u(w)}px;height:${u(h)}px"><small>${t}</small></div>`; };
   const html = `<div class="b" style="width:${u(W)}px;height:${u(H)}px;background:linear-gradient(#fdfaf1,#efe6d2);border:16px solid ${color};border-radius:30px">
-    ${bands}${eras}<div class="sm" style="left:${u(0.4)}px;top:${u(1.9)}px;font:20px/1 PlexB">YOUR COMPANY</div>
+    ${bands}${eras}<div class="sm" style="left:${u(4.1)}px;top:${u(0.62)}px;width:${u(1.95)}px;font:16px/1.15 PlexB;text-align:right;color:#b3261e">${C.ic('loy', 1)} loyalty each round</div><div class="sm" style="left:${u(0.4)}px;top:${u(1.9)}px;font:20px/1 PlexB">YOUR COMPANY</div>
     <div class="sm" style="left:${u(6.0)}px;top:${u(2.05)}px;font:18px/1 PlexB;text-transform:uppercase;letter-spacing:.06em">Era track: pitchers fill it; a full track moves you up an era. Whole stars and control tokens cover spaces from the right.</div>${trk}
     ${stat('cash', 'Capital')}${stat('loy', 'Loyalty')}${stat('stars', 'Stars')}${stat('imp', 'Capital tokens')}${stat('hand', 'Ingredients')}${stat('inf', 'Influence')}
     ${slotsHTML({ floor0: s.floor0, floor1: s.floor1, floor2: s.floor2, shelf: s.shelf, tiles: s.tiles }, { floor0: 'Floor', floor1: 'Floor', floor2: 'Floor', shelf: 'Shelf: scrapped machines count toward research', tiles: 'Research cards' })}

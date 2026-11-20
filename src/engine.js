@@ -675,23 +675,31 @@ const E = (() => {
     need.ram = Math.min(need.shortN, hasA(p, 'raman') ? 2 : 0);
     return need;
   }
-  function payFor(G, p, card, patent) { // the cards you would discard to research this card, or null if your shelf falls short
+  // how many cards of any kind researching this card takes, or null if your shelf falls short
+  function payCount(G, p, card, patent) {
     const n = needFor(G, p, card); let short = n.shortN - n.ram, cards = n.any + n.ram, wild = patent ? 1 : 0;
     if (short > wild) return null; wild -= short; if (wild > 0 && cards > 0) { cards--; wild--; } // a patent covers one missing named family, or one card
+    return cards;
+  }
+  // the cards you would discard to research this card, or null if your shelf falls short. A player may name them (choice:
+  // a list of families); otherwise the cards come from the families you hold most of
+  function payFor(G, p, card, patent, choice) {
+    const cards = payCount(G, p, card, patent); if (cards === null) return null;
+    if (choice) { if (choice.length !== cards) return null; const h = { ...p.hand }; for (const f of choice) { if (!(h[f] > 0)) return null; h[f]--; } return choice.slice(); }
     const h = { ...p.hand }, use = [];
     for (let k = 0; k < cards; k++) { const g = FAMS.slice().sort((a, b) => h[b] - h[a])[0]; if (h[g] > 0) { h[g]--; use.push(g); } else return null; }
     return use;
   }
   const resCards = p => (p.tiles || []).length;
-  function canResearch(G, k, patent) {
+  function canResearch(G, k, patent, choice) {
     const p = P(G), c = G.rrow[k]; if (myTurn(G, 'biz')) return no(myTurn(G, 'biz')); if (p.jail) return no('In custody');
     if (!c) return no('No card there');
     if (c.win && resCards(p) < WINNEED) return no(`Needs ${WINNEED} research cards in hand`);
-    return payFor(G, p, c, patent) ? yes() : no('Not enough ingredients');
+    return payFor(G, p, c, patent, choice) ? yes() : no(choice ? 'Those cards do not pay for it' : 'Not enough ingredients');
   }
-  function research(G, k, patent) {
-    const x = canResearch(G, k, patent); if (!x.ok) return false; const p = P(G), pi = G.turn, t = G.rrow[k];
-    { const pay = payFor(G, p, t, patent); acc(p, 'resCards', pay.length); acc(p, 'resN', 1); acc(p, 'resStars', t.st || 0); spend(G, p, pay, 'rcard-' + k); } G.rrow.splice(k, 1); G.rrow.push(null); ops += 2; // the row slides along; the new card comes in at the far end
+  function research(G, k, patent, choice) {
+    const x = canResearch(G, k, patent, choice); if (!x.ok) return false; const p = P(G), pi = G.turn, t = G.rrow[k];
+    { const pay = payFor(G, p, t, patent, choice); acc(p, 'resCards', pay.length); acc(p, 'resN', 1); acc(p, 'resStars', t.st || 0); spend(G, p, pay, 'rcard-' + k); } G.rrow.splice(k, 1); G.rrow.push(null); ops += 2; // the row slides along; the new card comes in at the far end
     if (t.st) fx(G, { k: 'star', n: t.st, from: 'rcard-' + k, to: 'stars-' + pi });
     fx(G, { k: 'mach', m: { name: t.name, tier: t.tier }, from: 'rcard-' + k, to: 'tiles-' + pi });
     (p.tiles = p.tiles || []).push({ ...t, cost: { ...t.cost }, get: { ...t.get }, r: G.round, copied: false }); // the card goes into your hand
@@ -1267,7 +1275,8 @@ const E = (() => {
     for (const e of R.ev) lines.push(JSON.stringify({ ev: e }));
     lines.push(JSON.stringify({ final: fin }));
     return lines.join('\n'); }
-  return { RING, WORLD, HOTN, ROUGHN, BONUS, IMPY, IMPC, recordText, recOn, GENES, LEG, legacyGenome, gv, shelfOf, canImprove, improve, cellYield, yields, impIncome, IMPR, IMPON, canScrap, scrapM, researchDeck, CMAX, advTier, ABOARD, PDISC, WINCARD, RROW, WINNEED, CONDS, condOK, rbonus, needFor, payFor, resCards, canTakeOffer, takeOffer, declineOffer, mapStyle, outpostN, BOARDS, OUTPOST, travel, WIN, stipend, UD, UDF, ADVISORS, ROW, POACH, hasA, used, drawCost, canHire, hire, canHit, hit, canSell, sell, canVacate, FAMS, FNAME, FDIR, ARROW, FLAVOR, DRAW, TAKE, KEEP, MAXSTAR, TX, ERAS, OVER, LOYE, trackLen, STARCASH, TILESET, BLANK, starText, income, INCB, INCK, CASH0, LOY0, TOKN, INFC, MSIZE, FM, FILECARDS, MAXROUND, SLOTS, MKT, BANDS, TOL, bandOf, START, MACHINES, MAT, MID, ICARD, IDECK, MEMOS, COLORS,
+  const researchPay = (G, k, patent) => { const c = G.rrow[k]; return c ? payCount(G, P(G), c, patent) : null; }; // cards of any kind owed
+  return { researchPay, RING, WORLD, HOTN, ROUGHN, BONUS, IMPY, IMPC, recordText, recOn, GENES, LEG, legacyGenome, gv, shelfOf, canImprove, improve, cellYield, yields, impIncome, IMPR, IMPON, canScrap, scrapM, researchDeck, CMAX, advTier, ABOARD, PDISC, WINCARD, RROW, WINNEED, CONDS, condOK, rbonus, needFor, payFor, resCards, canTakeOffer, takeOffer, declineOffer, mapStyle, outpostN, BOARDS, OUTPOST, travel, WIN, stipend, UD, UDF, ADVISORS, ROW, POACH, hasA, used, drawCost, canHire, hire, canHit, hit, canSell, sell, canVacate, FAMS, FNAME, FDIR, ARROW, FLAVOR, DRAW, TAKE, KEEP, MAXSTAR, TX, ERAS, OVER, LOYE, trackLen, STARCASH, TILESET, BLANK, starText, income, INCB, INCK, CASH0, LOY0, TOKN, INFC, MSIZE, FM, FILECARDS, MAXROUND, SLOTS, MKT, BANDS, TOL, bandOf, START, MACHINES, MAT, MID, ICARD, IDECK, MEMOS, COLORS,
     newGame, co, cell, toks, ownerOf, controlled, homeOf, dist, tokCost, handSize, topEra, tolerance, onMap, bailCost, fuel, actTargets,
     canStand, stand, canDraw, draw, pick, canTake, take, canRun, run, canBuy, buy, canResearch, research, canPlace, place, canLobby, lobby, canBail, bail, canPlay, play, canFile, file, canChoose, choose, pass,
     botStep, plan, getOps: () => ops, resetOps: () => { ops = 0; } };
