@@ -421,10 +421,10 @@ local function buildActions()
     for i, c in each(G.choice.cards) do if not c.taken then B('pick_' .. i, 'Keep ' .. c.n .. ' (' .. E.FNAME[c.f] .. ')', nil, 'answer') end end return end
   if ui.pay then local Y = ui.pay; local got, parts = 0, {}
     for _, f in ipairs(FAMS) do local n = Y.chosen[f] or 0; got = got + n; if n > 0 then parts[#parts + 1] = n .. ' ' .. E.FNAME[f] end end
-    dialog = 'This research takes ' .. Y.need .. ' card' .. (Y.need > 1 and 's' or '') .. ' of any kind. Choose which to discard: ' .. (#parts > 0 and table.concat(parts, ', ') or 'none yet') .. ' (' .. got .. ' of ' .. Y.need .. ').'
-    if got < Y.need then for _, f in ipairs(FAMS) do local left = (p.hand[f] or 0) - (Y.chosen[f] or 0); if left > 0 then B('payadd_' .. f, 'Discard ' .. E.FNAME[f] .. ' (' .. left .. ' in hand)', nil, 'answer') end end end
+    dialog = (Y.run and ('The ' .. p.mach[Y.run.i].name:lower() .. ' takes ' .. Y.need .. ' card' .. (Y.need > 1 and 's' or '') .. ' of any kind' .. (Y.run.named ~= '' and (', on top of ' .. Y.run.named) or '') .. '. Choose which to use: ') or ('This research takes ' .. Y.need .. ' card' .. (Y.need > 1 and 's' or '') .. ' of any kind. Choose which to discard: ')) .. (#parts > 0 and table.concat(parts, ', ') or 'none yet') .. ' (' .. got .. ' of ' .. Y.need .. ').'
+    if got < Y.need then for _, f in ipairs(FAMS) do local left = (p.hand[f] or 0) - (Y.chosen[f] or 0) - (Y.held and Y.held[f] or 0); if left > 0 then B('payadd_' .. f, (Y.run and 'Use ' or 'Discard ') .. E.FNAME[f] .. ' (' .. left .. ' in hand)', nil, 'answer') end end end
     if got > 0 then B('payclear', 'Start over', nil, 'answer') end
-    if got == Y.need then B('payok', 'Research with these', nil, 'answer') end
+    if got == Y.need then B('payok', Y.run and 'Run with these' or 'Research with these', nil, 'answer') end
     B('payno', 'Cancel', nil, 'answer'); return end
   if ui.scrapFor then dialog = 'Your floor is full. Free a slot: a machine goes to your shelf; an advisor leaves.'
     for i, m in each(p.mach) do B('scrap_' .. i, 'Scrap ' .. m.name, nil, 'answer') end
@@ -552,6 +552,17 @@ local function sync()
       sync() end end, S.speed or 1.2)
   end
 end
+-- a machine with 'any' inputs: let the player choose, when there is a real choice
+local function wildPick(G, p, i, mode)
+  local m = p.mach[i]; if not m or not ok(E.canRun(G, i, mode)) then return false end
+  local need = E.anyN(G, i); if need == 0 then return false end
+  local held, fixed, names = {}, {}, {}
+  for _, f in each(m.inp) do if f ~= 'any' then held[f] = (held[f] or 0) + 1; fixed[#fixed + 1] = f; names[#names + 1] = E.FNAME[f] end end
+  local fams = 0; for _, f in ipairs(FAMS) do if (p.hand[f] or 0) - (held[f] or 0) > 0 then fams = fams + 1 end end
+  if fams < 2 then return false end -- only one way to pay
+  ui.pay = { need = need, chosen = {}, held = held, run = { i = i, mode = mode, fixed = fixed, named = table.concat(names, ' and ') } }
+  return true
+end
 local function doAct(id)
   local G = S.G; local a = actor(); local p = P(a)
   local function num(s) return tonumber(s) end
@@ -561,9 +572,9 @@ local function doAct(id)
   elseif cmd == 'pick' then acted = E.pick(G, num(r1))
   elseif cmd == 'draw' then acted = E.draw(G)
   elseif cmd == 'take' then acted = E.take(G, r1)
-  elseif cmd == 'run' then acted = E.run(G, num(r1))
+  elseif cmd == 'run' or cmd == 'rerun' then local i = num(r1); local mode = cmd == 'rerun' and 'rerun' or nil
+    if wildPick(G, p, i, mode) then else acted = E.run(G, i, nil, mode) end
   elseif cmd == 'frun' then acted = E.run(G, num(r1), nil, 'free')
-  elseif cmd == 'rerun' then acted = E.run(G, num(r1), nil, 'rerun')
   elseif cmd == 'hal' then acted = E.run(G, num(r1), nil, true)
   elseif cmd == 'buy' then if E.used(p) >= E.SLOTS then ui.scrapFor = { kind = 'buy', i = num(r1) } else acted = E.buy(G, num(r1)) end
   elseif cmd == 'hire' then if E.used(p) >= E.SLOTS then ui.scrapFor = { kind = 'hire', k = num(r1) } else acted = E.hire(G, num(r1)) end
@@ -582,7 +593,7 @@ local function doAct(id)
   elseif cmd == 'payclear' then ui.pay.chosen = {}
   elseif cmd == 'payno' then ui.pay = nil
   elseif cmd == 'payok' then local Y = ui.pay; local list = {}; for _, f in ipairs(FAMS) do for i = 1, (Y.chosen[f] or 0) do list[#list + 1] = f end end
-    ui.pay = nil; acted = E.research(G, Y.k, nil, jsA(list)); if not acted then broadcastToColor('Those cards do not pay for it.', SEATCOL[a + 1], { 1, 0.6, 0.6 }) end
+    ui.pay = nil; if Y.run then for _, f in ipairs(Y.run.fixed) do list[#list + 1] = f end; acted = E.run(G, Y.run.i, jsA(list), Y.run.mode) else acted = E.research(G, Y.k, nil, jsA(list)) end; if not acted then broadcastToColor('Those cards do not pay for it.', SEATCOL[a + 1], { 1, 0.6, 0.6 }) end
   elseif cmd == 'bail' then acted = E.bail(G)
   elseif cmd == 'lobby' then acted = E.lobby(G)
   elseif cmd == 'sell' then acted = E.sell(G, num(r1))

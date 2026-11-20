@@ -541,6 +541,13 @@ const E = (() => {
     for (const f of inp) if (f === 'any') { const g = FAMS.slice().sort((a, b) => h[b] - h[a])[0]; if (!h[g]) return null; h[g]--; use.push(g); }
     return use;
   }
+  function useOK(p, inp, use) { // a player's own choice of cards: the named families as printed, any family for each 'any'
+    if (!Array.isArray(use) || use.length !== inp.length) return false; const h = { ...p.hand }, named = inp.filter(f => f !== 'any');
+    for (const f of named) { if (!(h[f] > 0)) return false; h[f]--; }
+    const rest = use.slice(); for (const f of named) { const j = rest.indexOf(f); if (j < 0) return false; rest.splice(j, 1); }
+    for (const f of rest) { if (!FAMS.includes(f) || !(h[f] > 0)) return false; h[f]--; } return true;
+  }
+  const anyN = (G, i) => { const m = P(G).mach[i]; return m ? m.inp.filter(f => f === 'any').length : 0; };
   function canRun(G, i, hal) {
     const p = P(G), m = p.mach[i]; if (myTurn(G, 'biz')) return no(myTurn(G, 'biz')); if (p.jail) return no('In custody');
     if (!m) return no('No machine');
@@ -552,6 +559,7 @@ const E = (() => {
   }
   function run(G, i, use, hal) {
     const x = canRun(G, i, hal); if (!x.ok) return false; const p = P(G), m = p.mach[i];
+    if (use && (hal === true || hal === 'free' || !useOK(p, m.inp, use))) return false;
     if (hal === 'rerun') p.rerun--; else if (m.ran) p.g2 = true; // the graduate's second run
     const out = hal === true ? Math.max(1, m.out - 2) : m.out;
     if (hal === true) p.halUsed = true; else if (hal === 'free') p.free--; else spend(G, p, use || fuel(p, m.inp), 'mach-' + G.turn + '-' + i);
@@ -1277,7 +1285,7 @@ const E = (() => {
     lines.push(JSON.stringify({ final: fin }));
     return lines.join('\n'); }
   const researchPay = (G, k, patent) => { const c = G.rrow[k]; return c ? payCount(G, P(G), c, patent) : null; }; // cards of any kind owed
-  return { researchPay, RING, WORLD, HOTN, ROUGHN, BONUS, IMPY, IMPC, recordText, recOn, GENES, LEG, legacyGenome, gv, shelfOf, canImprove, improve, cellYield, yields, impIncome, IMPR, IMPON, canScrap, scrapM, researchDeck, CMAX, advTier, ABOARD, PDISC, WINCARD, RROW, WINNEED, CONDS, condOK, rbonus, needFor, payFor, resCards, canTakeOffer, takeOffer, declineOffer, mapStyle, outpostN, BOARDS, OUTPOST, travel, WIN, stipend, UD, UDF, ADVISORS, ROW, POACH, hasA, used, drawCost, canHire, hire, canHit, hit, canSell, sell, canVacate, FAMS, FNAME, FDIR, ARROW, FLAVOR, DRAW, TAKE, KEEP, MAXSTAR, TX, ERAS, OVER, LOYE, trackLen, STARCASH, TILESET, BLANK, starText, income, INCB, INCK, CASH0, LOY0, TOKN, INFC, MSIZE, FM, FILECARDS, MAXROUND, SLOTS, MKT, BANDS, TOL, bandOf, START, MACHINES, MAT, MID, ICARD, IDECK, MEMOS, COLORS,
+  return { anyN, researchPay, RING, WORLD, HOTN, ROUGHN, BONUS, IMPY, IMPC, recordText, recOn, GENES, LEG, legacyGenome, gv, shelfOf, canImprove, improve, cellYield, yields, impIncome, IMPR, IMPON, canScrap, scrapM, researchDeck, CMAX, advTier, ABOARD, PDISC, WINCARD, RROW, WINNEED, CONDS, condOK, rbonus, needFor, payFor, resCards, canTakeOffer, takeOffer, declineOffer, mapStyle, outpostN, BOARDS, OUTPOST, travel, WIN, stipend, UD, UDF, ADVISORS, ROW, POACH, hasA, used, drawCost, canHire, hire, canHit, hit, canSell, sell, canVacate, FAMS, FNAME, FDIR, ARROW, FLAVOR, DRAW, TAKE, KEEP, MAXSTAR, TX, ERAS, OVER, LOYE, trackLen, STARCASH, TILESET, BLANK, starText, income, INCB, INCK, CASH0, LOY0, TOKN, INFC, MSIZE, FM, FILECARDS, MAXROUND, SLOTS, MKT, BANDS, TOL, bandOf, START, MACHINES, MAT, MID, ICARD, IDECK, MEMOS, COLORS,
     newGame, co, cell, toks, ownerOf, controlled, homeOf, dist, tokCost, handSize, topEra, tolerance, onMap, bailCost, fuel, actTargets,
     canStand, stand, canDraw, draw, pick, canTake, take, canRun, run, canBuy, buy, canResearch, research, canPlace, place, canLobby, lobby, canBail, bail, canPlay, play, canFile, file, canChoose, choose, pass,
     botStep, plan, getOps: () => ops, resetOps: () => { ops = 0; } };
