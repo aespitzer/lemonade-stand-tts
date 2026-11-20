@@ -14,11 +14,12 @@ local function mkobj(data)
   o.getPosition = function() live(); return vec(o.pos.x, o.pos.y, o.pos.z) end
   local function setp(p) live(); if p.x then o.pos = vec(p.x, p.y, p.z) else o.pos = vec(p[1], p[2], p[3]) end end
   o.setPosition = setp; o.setPositionSmooth = function(p) setp(p) end
-  o.setRotation = function(r) live() end; o.setRotationSmooth = function(r) live() end
+  local function setr(r) live(); if r.x then o.rot = vec(r.x, r.y, r.z) else o.rot = vec(r[1], r[2], r[3]) end end
+  o.setRotation = setr; o.setRotationSmooth = function(r) setr(r) end
   o.setScale = function(s) live(); o.scale = vec(s[1], s[2], s[3]) end
   o.setLock = function(b) o.locked = b end
   o.getScale = function() return vec(o.scale.x, o.scale.y, o.scale.z) end
-  o.deal = function(n, col) live(); o.dealt = col end
+  o.deal = function(n, col) live(); o.dealt = col; o.inHand = col end
   o.destruct = function() live(); o.dead = true end
   o.getBoundsNormalized = function() local ar = 1
       if data.CustomImage then local f = data.CustomImage.ImageURL:match('([^/]+)%.png$'); local L = LAYOUT.files[f]; if L then ar = L.h / L.w end end

@@ -4671,8 +4671,7 @@ local function boardsUp(n, after)
       local function size() local okk, bd = pcall(function() return o.getBoundsNormalized() end)
         if not (okk and bd and bd.size) then return nil end
         local sc = o.getScale(); local sx = (sc and sc.x) or 1; local sz = (sc and sc.z) or 1
-        if B.rot % 180 == 0 then return bd.size.x / sx, bd.size.z / sz end
-        return bd.size.z / sx, bd.size.x / sz end
+        return bd.size.x / sx, bd.size.z / sz end -- getBoundsNormalized gives the size as if unrotated
       local function shaped() if not loaded(o) then return false end local w0, h0 = size(); if not w0 or h0 <= 0 then return false end
         local want = B.w / B.h; return math.abs(w0 / h0 - want) < 0.06 * want end
       local function fit() local w0 = size(); if w0 and w0 > 0.01 then local k = B.w / w0; o.setScale({ k, 1, k }) end
@@ -4894,25 +4893,24 @@ local function panelXml()
   x = x .. '<Button id="newgame" onClick="uiNew">New game</Button></VerticalLayout></Panel>'
   if S.mode ~= 'full' or not S.G then return x end
   local G = S.G
-  if G.winner ~= nil then return x .. '<Panel id="act" rectAlignment="LowerCenter" width="560" height="60" offsetXY="0 12" color="#2b1a14ee"><Text fontSize="22" color="#f4d03f">' .. esc(P(G.winner).name .. ' wins.') .. '</Text></Panel>' end
+  if G.winner ~= nil then return x .. '<Panel id="act" rectAlignment="MiddleLeft" width="380" height="60" offsetXY="70 -40" color="#2b1a14ee"><Text fontSize="22" color="#f4d03f">' .. esc(P(G.winner).name .. ' wins.') .. '</Text></Panel>' end
   buildActions()
   local a = actor(); local col = SEATCOL[a + 1]
   if not S.seats[a + 1].human then
-    return x .. '<Panel id="act" rectAlignment="LowerCenter" width="460" height="44" offsetXY="0 12" color="#2b1a14cc"><Text fontSize="17" color="#efe6d2">' .. esc(P(a).name .. ' (bot) is thinking...') .. '</Text></Panel>' end
+    return x .. '<Panel id="act" rectAlignment="MiddleLeft" width="380" height="44" offsetXY="70 -40" color="#2b1a14cc"><Text fontSize="17" color="#efe6d2">' .. esc(P(a).name .. ' (bot) is thinking...') .. '</Text></Panel>' end
   local vis = S.anyone and '' or (' visibility="' .. col .. '"')
-  local W, LABW, BW = 760, 120, 200
+  local W, BW = 380, 340
   local rowsXml, h = '', 52
-  if dialog then local lines = math.ceil(#dialog / 95); rowsXml = rowsXml .. '<Text fontSize="15" color="#efe6d2" preferredHeight="' .. (lines * 20 + 6) .. '" alignment="MiddleLeft">' .. esc(dialog) .. '</Text>'; h = h + lines * 20 + 12 end
+  if dialog then local lines = math.ceil(#dialog / 46); rowsXml = rowsXml .. '<Text fontSize="14" color="#efe6d2" preferredHeight="' .. (lines * 18 + 6) .. '" alignment="UpperLeft">' .. esc(dialog) .. '</Text>'; h = h + lines * 18 + 12 end
   for _, g in ipairs(GROUPS) do local list = {}; for _, b in ipairs(btns) do if b.group == g[1] then list[#list + 1] = b end end
-    for r = 1, math.ceil(#list / 3) do
-      rowsXml = rowsXml .. '<HorizontalLayout preferredHeight="34" spacing="6" childForceExpandWidth="false" childAlignment="MiddleLeft">'
-      rowsXml = rowsXml .. '<Text fontSize="13" color="#f4d03f" preferredWidth="' .. LABW .. '" alignment="MiddleLeft">' .. (r == 1 and g[2] or '') .. '</Text>'
-      for k = (r - 1) * 3 + 1, math.min(#list, r * 3) do local b = list[k]
-        rowsXml = rowsXml .. '<Button id="a_' .. b.id .. '" onClick="uiAct" fontSize="14" preferredWidth="' .. BW .. '"' .. (g[1] == 'end' and ' colors="#f4d03f|#ffe27a|#d8b52a|#888888"' or '') .. '>' .. esc(b.label) .. '</Button>' end
-      rowsXml = rowsXml .. '</HorizontalLayout>'; h = h + 40
+    if #list > 0 then
+      rowsXml = rowsXml .. '<Text fontSize="13" color="#f4d03f" preferredHeight="18" alignment="LowerLeft">' .. g[2] .. '</Text>'; h = h + 24
+      for _, b in ipairs(list) do
+        rowsXml = rowsXml .. '<Button id="a_' .. b.id .. '" onClick="uiAct" fontSize="14" preferredHeight="32"' .. (g[1] == 'end' and ' colors="#f4d03f|#ffe27a|#d8b52a|#888888"' or '') .. '>' .. esc(b.label) .. '</Button>'; h = h + 38 end
     end end
-  x = x .. '<Panel id="act" rectAlignment="LowerCenter" width="' .. W .. '" height="' .. h .. '" offsetXY="0 12" color="#2b1a14ee"' .. vis .. '><VerticalLayout padding="10 10 8 8" spacing="6" childForceExpandHeight="false" childAlignment="UpperLeft">'
-  x = x .. '<Text fontSize="18" color="' .. ({ Red = '#ff8a7a', Blue = '#8fbaff', Green = '#7fdc9f' })[col] .. '" preferredHeight="24" fontStyle="Bold" alignment="MiddleLeft">' .. esc(P(a).name .. ' to act · round ' .. G.round .. ' · ' .. ({ stand = 'setup', biz = 'the market', place = 'the map', memo = 'payday' })[G.phase]) .. '</Text>' .. rowsXml
+  h = math.min(h, 1000)
+  x = x .. '<Panel id="act" rectAlignment="MiddleLeft" width="' .. W .. '" height="' .. h .. '" offsetXY="70 -40" color="#2b1a14ee"' .. vis .. '><VerticalLayout padding="12 12 10 10" spacing="6" childForceExpandHeight="false" childAlignment="UpperLeft">'
+  x = x .. '<Text fontSize="17" color="' .. ({ Red = '#ff8a7a', Blue = '#8fbaff', Green = '#7fdc9f' })[col] .. '" preferredHeight="24" fontStyle="Bold" alignment="MiddleLeft">' .. esc(P(a).name .. ' to act · round ' .. G.round .. ' · ' .. ({ stand = 'setup', biz = 'the market', place = 'the map', memo = 'payday' })[G.phase]) .. '</Text>' .. rowsXml
   x = x .. '</VerticalLayout></Panel>'
   return x
 end

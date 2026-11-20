@@ -66,48 +66,49 @@ def start(L, np, seats, mode='full'):
     for i, s in enumerate(seats): G.uiSeat(L.table_from({'color': 'Red'}), s, 'seat%d' % (i + 1))
     G.uiStart(L.table_from({'color': 'Red'}))
 
-results = []
-for g in range(int(sys.argv[1]) if len(sys.argv) > 1 else 4):
-    rnd = random.Random(g)
-    L = new_runtime(); L.execute('math.randomseed(%d)' % (g + 1))
-    np = 2 if g % 2 else 3
-    seats = ['Human'] + [rnd.choice(['Bot: champion', 'Bot: generalist', 'Bot: manufacturer', 'Bot: producer', 'Bot: distributor']) for _ in range(np - 1)]
-    start(L, np, seats)
-    r = play(L, rnd, save_at=3 if g == 0 else None)
-    if r == 'save':
-        before = L.eval('JS_JSON.stringify')(L.globals().S.G)
-        state = L.globals().onSave()
-        L2 = new_runtime(); L2.globals().onLoad(state)
-        after = L2.eval('JS_JSON.stringify')(L2.globals().S.G)
-        print('save/load: state', 'IDENTICAL' if before == after else 'DIFFERENT', len(state) // 1024, 'KB saved')
-        if before != after:
-            i = next(j for j in range(min(len(before), len(after))) if before[j] != after[j]); print(before[i-200:i+100]); print(after[i-200:i+100])
-        L = L2; r = play(L, rnd)
-    G = L.globals()
-    rec = [t.body for t in G.MOCK.tabs.values()]
-    lines = ''.join(rec).split('\n') if rec else []
-    parsed = sum(1 for l in lines[1:] if l.strip() and json.loads(l) is not None)
-    r.update({'np': np, 'seats': seats, 'record_lines': len(lines), 'parsed': parsed, 'objects': len(G.getObjects())})
-    print(r)
-    results.append(r)
+if __name__ == '__main__':
+    results = []
+    for g in range(int(sys.argv[1]) if len(sys.argv) > 1 else 4):
+        rnd = random.Random(g)
+        L = new_runtime(); L.execute('math.randomseed(%d)' % (g + 1))
+        np = 2 if g % 2 else 3
+        seats = ['Human'] + [rnd.choice(['Bot: champion', 'Bot: generalist', 'Bot: manufacturer', 'Bot: producer', 'Bot: distributor']) for _ in range(np - 1)]
+        start(L, np, seats)
+        r = play(L, rnd, save_at=3 if g == 0 else None)
+        if r == 'save':
+            before = L.eval('JS_JSON.stringify')(L.globals().S.G)
+            state = L.globals().onSave()
+            L2 = new_runtime(); L2.globals().onLoad(state)
+            after = L2.eval('JS_JSON.stringify')(L2.globals().S.G)
+            print('save/load: state', 'IDENTICAL' if before == after else 'DIFFERENT', len(state) // 1024, 'KB saved')
+            if before != after:
+                i = next(j for j in range(min(len(before), len(after))) if before[j] != after[j]); print(before[i-200:i+100]); print(after[i-200:i+100])
+            L = L2; r = play(L, rnd)
+        G = L.globals()
+        rec = [t.body for t in G.MOCK.tabs.values()]
+        lines = ''.join(rec).split('\n') if rec else []
+        parsed = sum(1 for l in lines[1:] if l.strip() and json.loads(l) is not None)
+        r.update({'np': np, 'seats': seats, 'record_lines': len(lines), 'parsed': parsed, 'objects': len(G.getObjects())})
+        print(r)
+        results.append(r)
 
-# the manual modes
-for mode in ['arith', 'log']:
-    L = new_runtime(); G = L.globals()
-    start(L, 3, ['Human', 'Human', 'Human'], mode)
-    while len(G.MOCK.waits): f = G.MOCK.waits[1]; L.eval('table.remove')(G.MOCK.waits, 1); f()
-    assert xml_ok(G.MOCK.xml)
-    objs = list(G.getObjects().values())
-    # move a loyalty chip from Red's bag onto a market and a machine to Red's floor, as a player would
-    tile = next(o for o in objs if str(o.notes).startswith('se|tile:'))
-    chip = G.spawnObjectData(L.table_from({'data': L.table_from({'Name': 'Chip_10', 'GMNotes': 'se|loy:Red', 'Transform': L.table_from({'posX': 0, 'posY': 2, 'posZ': 0})})}))
-    G.onObjectPickUp('Red', chip); chip.pos.x = tile.pos.x; chip.pos.z = tile.pos.z; G.onObjectDrop('Red', chip)
-    mkt = next(o for o in objs if str(o.notes) == 'se|c:mach:hands' or 'mach:' in str(o.notes))
-    G.onObjectPickUp('Red', mkt); G.onObjectDrop('Red', mkt)
-    if mode == 'arith':
-        G.uiPayday(L.table_from({'color': 'Red'})); G.uiStipend(L.table_from({'color': 'Red'})); G.uiCosts(L.table_from({'color': 'Red'}))
-        labels = [b.label for o in G.getObjects().values() if o.buttons for b in o.buttons.values()]
-        print('token costs shown on', len(labels), 'markets, e.g.', labels[:6])
-    G.uiSnap(L.table_from({'color': 'Red'})); G.uiRecord(L.table_from({'color': 'Red'}))
-    body = ''.join(t.body for t in G.MOCK.tabs.values()); lines = body.split('\n')
-    print(mode, 'record lines', len(lines), 'parse', all(json.loads(l) is not None for l in lines[1:] if l.strip()), 'errors', list(G.MOCK.errors.values()), [m for m in G.MOCK.msgs.values() if 'Payday' in m][:1])
+    # the manual modes
+    for mode in ['arith', 'log']:
+        L = new_runtime(); G = L.globals()
+        start(L, 3, ['Human', 'Human', 'Human'], mode)
+        while len(G.MOCK.waits): f = G.MOCK.waits[1]; L.eval('table.remove')(G.MOCK.waits, 1); f()
+        assert xml_ok(G.MOCK.xml)
+        objs = list(G.getObjects().values())
+        # move a loyalty chip from Red's bag onto a market and a machine to Red's floor, as a player would
+        tile = next(o for o in objs if str(o.notes).startswith('se|tile:'))
+        chip = G.spawnObjectData(L.table_from({'data': L.table_from({'Name': 'Chip_10', 'GMNotes': 'se|loy:Red', 'Transform': L.table_from({'posX': 0, 'posY': 2, 'posZ': 0})})}))
+        G.onObjectPickUp('Red', chip); chip.pos.x = tile.pos.x; chip.pos.z = tile.pos.z; G.onObjectDrop('Red', chip)
+        mkt = next(o for o in objs if str(o.notes) == 'se|c:mach:hands' or 'mach:' in str(o.notes))
+        G.onObjectPickUp('Red', mkt); G.onObjectDrop('Red', mkt)
+        if mode == 'arith':
+            G.uiPayday(L.table_from({'color': 'Red'})); G.uiStipend(L.table_from({'color': 'Red'})); G.uiCosts(L.table_from({'color': 'Red'}))
+            labels = [b.label for o in G.getObjects().values() if o.buttons for b in o.buttons.values()]
+            print('token costs shown on', len(labels), 'markets, e.g.', labels[:6])
+        G.uiSnap(L.table_from({'color': 'Red'})); G.uiRecord(L.table_from({'color': 'Red'}))
+        body = ''.join(t.body for t in G.MOCK.tabs.values()); lines = body.split('\n')
+        print(mode, 'record lines', len(lines), 'parse', all(json.loads(l) is not None for l in lines[1:] if l.strip()), 'errors', list(G.MOCK.errors.values()), [m for m in G.MOCK.msgs.values() if 'Payday' in m][:1])

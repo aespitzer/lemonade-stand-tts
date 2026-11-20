@@ -42,6 +42,7 @@ Bots need full rules. *Champion* bots are the three best genomes from the tuner 
   - `build.js`: puts it all together into `Global.lua` and `SourEmpire.json`.
   - `diff/`: plays seeded games in the JavaScript and the Lua engine side by side and compares the whole game state after every action.
   - `test/`: runs the table script against a stand-in for Tabletop Simulator's API.
+  - `preview/`: draws the table the stand-in produced, from above and from the Red seat, with the real images, and draws the XML panels at Tabletop Simulator's 1920x1080 reference size. It checks layout, facing and proportions before anything is loaded in the game. The sizes of Tabletop Simulator's own pieces (chips, pawns, 3D text, buttons) are estimates there.
 
 ## How it was checked
 
