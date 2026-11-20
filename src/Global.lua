@@ -4847,6 +4847,13 @@ local function cardActions()
   local G = S.G; if G.winner ~= nil then return out end
   local a = actor(); if not S.seats[a + 1].human then return out end
   local p = P(a)
+  if ui.sel and not (G.pending or G.offer) then -- an influence card that targets a market or a research card: choose on the table
+    local c; for _, k in each(p.inf) do if k.u == ui.sel then c = k end end
+    local d = c and E.ICARD[c.t]; local extra = jsA(ui.marks or {})
+    if d and d.target == 'cell' then for _, cl in each(G.map.cells) do if ok(E.canPlay(G, ui.sel, cl.id, extra)) then out['tile:' .. cl.id] = { 'Choose', 'tgt_' .. cl.id } end end
+    elseif d and d.target == 'tile' then for k = 0, alen(G.rrow) - 1 do if G.rrow[k] and ok(E.canPlay(G, ui.sel, k, extra)) then out['rrow:' .. k] = { 'Choose', 'tgt_' .. k } end end end
+    return out
+  end
   if G.pending or G.offer or ui.scrapFor or ui.disc or ui.sel or ui.pay then return out end
   if G.choice then for i, c in each(G.choice.cards) do if not c.taken then out['choice:' .. i] = { 'Keep', 'pick_' .. i } end end return out end
   if G.phase == 'biz' then
@@ -4919,8 +4926,8 @@ local function buildActions()
     if c then local d = E.ICARD[c.t]; dialog = d.name .. ': choose a target. ' .. d.text
       local extra = jsA(ui.marks or {})
       if d.target == 'player' then for pi, q in each(G.players) do local x = E.canPlay(G, ui.sel, pi, extra); if ok(x) then B('tgt_' .. pi, q.name, nil, 'answer') end end
-      elseif d.target == 'cell' then for _, cl in each(G.map.cells) do local x = E.canPlay(G, ui.sel, cl.id, extra); if ok(x) then B('tgt_' .. cl.id, cl.name, nil, 'answer') end end
-      elseif d.target == 'tile' then for k = 0, alen(G.rrow) - 1 do local x = E.canPlay(G, ui.sel, k, extra); if ok(x) then B('tgt_' .. k, 'Research row card ' .. (k + 1), nil, 'answer') end end
+      elseif d.target == 'cell' then dialog = d.name .. ': click a market on the map. ' .. d.text
+      elseif d.target == 'tile' then dialog = d.name .. ': click a card in the research row. ' .. d.text
       elseif d.target == 'rtile' then for pi, q in each(G.players) do for k, t in each(q.tiles) do local x = E.canPlay(G, ui.sel, pi * 1000 + k, extra); if ok(x) then B('tgt_' .. (pi * 1000 + k), q.name .. ': ' .. t.name, nil, 'answer') end end end end
       B('nosel', 'Cancel', nil, 'answer') end
     return end
