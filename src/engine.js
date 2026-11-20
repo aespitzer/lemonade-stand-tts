@@ -619,6 +619,7 @@ const E = (() => {
     const p = P(G); if (myTurn(G, 'biz')) return no(myTurn(G, 'biz')); if (p.jail) return no('In custody');
     const a = from === undefined ? G.arow[k] : G.players[from] && G.players[from].adv[k]; if (!a) return no('Nobody there');
     if (from === G.turn) return no('Already yours'); if (p.era < a.era) return no(`Needs era ${a.era}`);
+    if (from !== undefined && a.moved === G.round) return no('Just changed jobs: stays put until next round');
     const cost = a.price + (from === undefined ? 0 : POACH); if ((p.cont || 0) < (a.cc || 0)) return no(`Needs ${a.cc} control`); return p.cash < cost ? no("Can't afford") : yes({ cash: cost, cont: a.cc || 0 });
   }
   function hire(G, k, from, scrap) {
@@ -626,7 +627,7 @@ const E = (() => {
     if (used(p) >= SLOTS && !canVacate(p, scrap)) return false;
     let a, src = 'arow-' + k;
     if (from === undefined) { a = G.arow.splice(k, 1)[0]; }
-    else { const q = G.players[from]; a = q.adv.splice(k, 1)[0]; unhook(G, from, a); q.cash += POACH; src = 'adv-' + from + '-' + k; fx(G, { k: 'coin', n: POACH, from: 'cash-' + pi, to: 'cash-' + from }); }
+    else { const q = G.players[from]; a = q.adv.splice(k, 1)[0]; unhook(G, from, a); a.moved = G.round; q.cash += POACH; src = 'adv-' + from + '-' + k; fx(G, { k: 'coin', n: POACH, from: 'cash-' + pi, to: 'cash-' + from }); }
     p.cash -= x.cost.cash; acc(p, 'adv', x.cost.cash); acc(p, 'advN', 1); p.cont -= a.cc || 0; const gone = used(p) >= SLOTS ? vacate(G, pi, scrap) : '';
     p.adv.push(a); hook(G, pi, a); ops += 2; (p.ever = p.ever || []).includes(a.id) || p.ever.push(a.id);
     fx(G, { k: 'mach', m: { name: a.name, tier: 0 }, from: src, to: 'adv-' + pi + '-' + (p.adv.length - 1) });
