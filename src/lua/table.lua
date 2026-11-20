@@ -356,7 +356,9 @@ local function cardActions()
     for i, m in each(G.mkt) do local x = E.canBuy(G, i); if ok(x) then out['mkt:' .. i] = { 'Buy' .. costTxt(x), 'buy_' .. i } end end
     for k = 0, alen(G.rrow) - 1 do if G.rrow[k] then local x = E.canResearch(G, k); if ok(x) then out['rrow:' .. k] = { 'Research', 'research_' .. k } end end end
     for k, ad in each(G.arow) do local x = E.canHire(G, k); if ok(x) then out['arow:' .. k] = { 'Hire' .. costTxt(x), 'hire_' .. k } end end
-    for i, m in each(p.mach) do if ok(E.canRun(G, i)) then out['floor:' .. a .. ':m' .. i] = { 'Run', 'run_' .. i } end end
+    for i, m in each(p.mach) do local key = 'floor:' .. a .. ':m' .. i
+      local run, scr = ok(E.canRun(G, i)), ok(E.canScrap(G, i))
+      if run and scr then out[key] = { 'Run', 'run_' .. i, 'Scrap', 'mscrap_' .. i } elseif run then out[key] = { 'Run', 'run_' .. i } elseif scr then out[key] = { 'Scrap', 'mscrap_' .. i } end end
   elseif G.phase == 'place' then
     for _, c in each(G.map.cells) do
       local x = ui.impMode and E.canImprove(G, c.id) or E.canPlace(G, c.id)
@@ -369,13 +371,15 @@ end
 local function cardButtons()
   local want2 = (S.mode == 'full' and S.G) and cardActions() or {}
   for key, o in pairs(objs) do
-    local w = want2[key]; local label = w and w[1] or nil
+    local w = want2[key]; local label = w and (w[1] .. (w[3] and ('|' .. w[3]) or '')) or nil
     if btnLast[key] ~= label and alive(o) then
       o.clearButtons()
       if w then local sc = (last[key] and last[key].kind == 'tile') and { S.tileScale or 1.4, S.tileScale or 1.4 } or (last[key] and last[key].sc) or { CS, CS }; local flip = last[key] and last[key].flip
-        o.createButton({ click_function = 'onCardClick', function_owner = Global, label = label, position = { 0, flip and -0.3 or 0.3, 0 }, rotation = flip and { 0, 0, 180 } or { 0, 0, 0 },
-          width = 1500, height = 520, font_size = 230, color = { 0.96, 0.82, 0.25, 0.95 }, hover_color = { 1, 0.9, 0.45, 1 }, font_color = { 0.17, 0.1, 0.08, 1 },
-          scale = { 0.6 / sc[1], 1, 0.6 / sc[2] }, tooltip = label }) end
+        local two = w[3] ~= nil
+        for b = 1, two and 2 or 1 do local lab = w[b * 2 - 1]; local dz = two and (b == 1 and 0.35 or -0.35) or 0
+          o.createButton({ click_function = b == 1 and 'onCardClick' or 'onCardClick2', function_owner = Global, label = lab, position = { 0, flip and -0.3 or 0.3, dz }, rotation = flip and { 0, 0, 180 } or { 0, 0, 0 },
+            width = 1500, height = 480, font_size = 220, color = (lab == 'Scrap') and { 0.85, 0.55, 0.45, 0.95 } or { 0.96, 0.82, 0.25, 0.95 }, hover_color = { 1, 0.9, 0.45, 1 }, font_color = { 0.17, 0.1, 0.08, 1 },
+            scale = { 0.6 / sc[1], 1, 0.6 / sc[2] }, tooltip = lab }) end end
       btnLast[key] = label
     end
   end
@@ -428,7 +432,6 @@ local function buildActions()
     for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }, 'influence') end
     B('sell_1', 'Sell Paul 1 Acidic', E.canSell(G), 'more'); if (p.hand.sour or 0) >= 2 then B('sell_2', 'Sell Paul 2 Acidic', E.canSell(G), 'more') end
     for pi, q in each(G.players) do if pi ~= a then for k, ad in each(q.adv) do B('poach_' .. pi .. '_' .. k, 'Hire away ' .. ad.name, E.canHire(G, k, pi), 'more'); B('hit_' .. pi .. '_' .. k, 'Hit ' .. ad.name, E.canHit(G, pi, k), 'more') end end end
-    for i, m in each(p.mach) do if ok(E.canScrap(G, i)) then B('mscrap_' .. i, 'Scrap ' .. m.name, nil, 'scrap') end end
     B('pass', 'Pass for the rest of the market', nil, 'end')
   elseif G.phase == 'place' then
     dialog = ui.impMode and 'Click a market you control to put a capital token on it.' or ('Click a market to place a loyalty token. You have ' .. p.loy .. ' loyalty.')
@@ -589,9 +592,11 @@ function onCardClick(obj, color, alt)
   if not canAct(color) then broadcastToColor('Not your turn.', color, { 1, 0.6, 0.6 }); return end
   local key = (obj.getGMNotes() or ''):match('^se|(.+)$'); if not key then return end
   local w = cardActions()[key]; if not w then sync(); return end
-  local okk, err = xpcall(function() doAct(w[2]) end, trace); if not okk then broadcastToAll('Error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
+  local id = (alt == 2) and w[4] or w[2]; if not id then sync(); return end
+  local okk, err = xpcall(function() doAct(id) end, trace); if not okk then broadcastToAll('Error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
   sync()
 end
+function onCardClick2(obj, color) onCardClick(obj, color, 2) end
 function uiAct(player, value, id)
   if not canAct(player.color) then broadcastToColor('Not your turn.', player.color, { 1, 0.6, 0.6 }); return end
   local okk, err = xpcall(function() doAct(id:sub(3)) end, trace); if not okk then broadcastToAll('Error: ' .. tostring(err), { 1, 0.4, 0.4 }); print(err) end
