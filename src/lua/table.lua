@@ -28,6 +28,7 @@ local function each(a) local i = -1; local n = alen(a); return function() i = i 
 local function jsA(t) local a = { __n = #t }; for i = 1, #t do a[i - 1] = t[i] end return __mkA(a) end
 local function jsO(t, keys) return __mkO(t, keys) end
 local function ok(x) return x and x.ok end
+local function loaded(o) local okk, r = pcall(function() return (not o.spawning) and (not o.loading_custom) end); return (not okk) or r end
 local function alive(o) if o == nil then return false end local okk, g = pcall(function() return o.getGUID() end); return okk and g ~= nil end
 
 -- lossless save format for engine values: arrays as ["\1", ...], numeric object keys as "#n"
@@ -148,12 +149,13 @@ local function card(key, cardKey, p, opt) opt = opt or {}
   want[key] = { kind = 'card', card = cardKey, p = p, rot = opt.rot or 0, sc = opt.sc or { CS, CS }, flip = opt.flip, hand = opt.hand, tap = opt.tap, label = opt.label } end
 local function chip(key, col, p, sc) want[key] = { kind = 'chip', col = col, p = p, sc = sc or 0.55 } end
 local function pawn(key, col, p) want[key] = { kind = 'pawn', col = col, p = p } end
-local function text(key, s, p, rot, size, col) want[key] = { kind = 'text', s = s, p = p, rot = rot or 0, size = size or 40, col = col } end
+local function text(key, s, p, rot, size, col) want[key] = { kind = 'text', s = s, p = p, rot = rot or 0, size = math.floor((size or 40) * 1.8), col = col } end
 
 local function colorOf(c) if type(c) == 'string' then local r = RGB[c] or { 1, 1, 1 }; return { r = r[1], g = r[2], b = r[3] } end return { r = c[1], g = c[2], b = c[3] } end
 local function spawnWanted(key, w)
   if w.kind == 'card' then
     local d = cardData(key, w.card, w.hand and { x = w.p.x, y = w.p.y + 2, z = w.p.z } or w.p, w.rot + (w.tap and 90 or 0), w.sc, w.flip, not w.hand)
+    if w.hand then return spawnFrom(key, d, function(obj) Wait.condition(function() pcall(function() obj.deal(1, w.hand) end) end, function() return loaded(obj) end, 10) end) end
     return spawnFrom(key, d)
   elseif w.kind == 'chip' then
     return spawnFrom(key, { Name = w.col == 'gold' and 'Chip_1000' or 'Chip_10', Transform = tf(w.p, 0, { w.sc, w.sc }), ColorDiffuse = w.col == 'gold' and { r = 0.89, g = 0.67, b = 0.11 } or colorOf(w.col), GMNotes = 'se|' .. key, Locked = true })
@@ -186,7 +188,6 @@ local function apply()
   end
 end
 local function clearAll() for key, o in pairs(objs) do if alive(o) then o.destruct() end end objs = {}; want = {}; last = {} end
-local function loaded(o) local okk, r = pcall(function() return (not o.spawning) and (not o.loading_custom) end); return (not okk) or r end
 -- measure a card once, so slots, tiles and tokens come out the size and shape they were drawn
 local function calibrate(after)
   if S.cardW then CARD_W, CARD_H = S.cardW, S.cardH; CS = math.min(0.95 * BOARD.common.L.slots.mkt0[3] / CARD_W, 0.95 * BOARD.common.L.slots.mkt0[4] / CARD_H); return after() end
@@ -211,13 +212,16 @@ local function boardsUp(n, after)
       local o = spawnObjectData({ data = { Name = 'Custom_Tile', Transform = tf(p, B.rot, { 1, 1 }), Locked = true, GMNotes = 'se|board:' .. b,
         CustomImage = { ImageURL = IMG .. B.file .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 0, Thickness = (b == 'felt') and 0.4 or 0.1, Stackable = false, Stretch = true } } } })
       objs['board:' .. b] = o
-      Wait.condition(function()
-        local okk, bd = pcall(function() return o.getBoundsNormalized() end)
-        if okk and bd and bd.size then local wx = (B.rot % 180 == 0) and bd.size.x or bd.size.z
-          if wx and wx > 0.01 then local k = B.w / wx; o.setScale({ k, 1, k }) end end
-        o.setPosition({ p.x, p.y, p.z }); o.interactable = false
-        done()
-      end, function() return loaded(o) end, 20, function() done() end)
+      local function size() local okk, bd = pcall(function() return o.getBoundsNormalized() end)
+        if not (okk and bd and bd.size) then return nil end
+        local sc = o.getScale(); local sx = (sc and sc.x) or 1; local sz = (sc and sc.z) or 1
+        if B.rot % 180 == 0 then return bd.size.x / sx, bd.size.z / sz end
+        return bd.size.z / sx, bd.size.x / sz end
+      local function shaped() if not loaded(o) then return false end local w0, h0 = size(); if not w0 or h0 <= 0 then return false end
+        local want = B.w / B.h; return math.abs(w0 / h0 - want) < 0.06 * want end
+      local function fit() local w0 = size(); if w0 and w0 > 0.01 then local k = B.w / w0; o.setScale({ k, 1, k }) end
+        o.setPosition({ p.x, p.y, p.z }); o.interactable = false; done() end
+      Wait.condition(fit, shaped, 30, fit)
     end
   end
   if pending == 0 and after then after() end
@@ -291,8 +295,8 @@ local function buildWant()
     -- hands: ingredient cards and influence cards, hidden
     local col = SEATCOL[pi + 1]; local ht = Player[col] and Player[col].getHandTransform and Player[col].getHandTransform()
     if ht then local hp = { x = ht.position.x, y = ht.position.y, z = ht.position.z }
-      for _, f in ipairs(FAMS) do local fl2 = E.FLAVOR[f]; for k = 0, (hand[f] or 0) - 1 do card('hand:' .. pi .. ':' .. f .. ':' .. k, 'ing:' .. f .. ':' .. fl2[k % alen(fl2)], hp, { hand = true, rot = B.rot + 180 }) end end
-      for _, c in each(p.inf) do if CARDS['inf:' .. c.t .. ':' .. c.x] then card('hinf:' .. pi .. ':' .. c.u, 'inf:' .. c.t .. ':' .. c.x, hp, { hand = true, rot = B.rot + 180 }) end end
+      for _, f in ipairs(FAMS) do local fl2 = E.FLAVOR[f]; for k = 0, (hand[f] or 0) - 1 do card('hand:' .. pi .. ':' .. f .. ':' .. k, 'ing:' .. f .. ':' .. fl2[k % alen(fl2)], hp, { hand = col, rot = B.rot }) end end
+      for _, c in each(p.inf) do if CARDS['inf:' .. c.t .. ':' .. c.x] then card('hinf:' .. pi .. ':' .. c.u, 'inf:' .. c.t .. ':' .. c.x, hp, { hand = col, rot = B.rot }) end end
     end
   end
   -- what is happening
@@ -423,7 +427,7 @@ local function setupXml()
     '<Button id="start" onClick="uiStart" preferredHeight="50" fontSize="22" colors="#2f9e5b|#43b06c|#227a45|#888888" textColor="#ffffff">Set up the table</Button>' ..
     '</VerticalLayout></Panel>'
 end
-local GROUPS = { { 'answer', '' }, { 'influence', 'Influence' }, { 'more', 'Also' }, { 'scrap', 'Scrap a machine to your shelf' }, { 'end', '' } }
+local GROUPS = { { 'answer', 'Choose' }, { 'influence', 'Influence' }, { 'more', 'Also' }, { 'scrap', 'Scrap to shelf' }, { 'end', 'Done' } }
 local function panelXml()
   local x = '<Panel id="tools" rectAlignment="UpperRight" width="230" height="' .. (S.mode == 'full' and 90 or 250) .. '" offsetXY="-10 -60" color="#2b1a14e6"><VerticalLayout padding="6" spacing="4">'
   x = x .. '<Button id="rec" onClick="uiRecord">Write the record to the Notebook</Button>'
@@ -440,17 +444,19 @@ local function panelXml()
   if not S.seats[a + 1].human then
     return x .. '<Panel id="act" rectAlignment="LowerCenter" width="460" height="44" offsetXY="0 12" color="#2b1a14cc"><Text fontSize="17" color="#efe6d2">' .. esc(P(a).name .. ' (bot) is thinking...') .. '</Text></Panel>' end
   local vis = S.anyone and '' or (' visibility="' .. col .. '"')
-  local body, h = '', 46
-  if dialog then body = body .. '<Text fontSize="15" color="#efe6d2" preferredHeight="' .. (#dialog > 150 and 64 or 40) .. '" alignment="MiddleLeft">' .. esc(dialog) .. '</Text>'; h = h + (#dialog > 150 and 70 or 46) end
+  local W, LABW, BW = 760, 120, 200
+  local rowsXml, h = '', 52
+  if dialog then local lines = math.ceil(#dialog / 95); rowsXml = rowsXml .. '<Text fontSize="15" color="#efe6d2" preferredHeight="' .. (lines * 20 + 6) .. '" alignment="MiddleLeft">' .. esc(dialog) .. '</Text>'; h = h + lines * 20 + 12 end
   for _, g in ipairs(GROUPS) do local list = {}; for _, b in ipairs(btns) do if b.group == g[1] then list[#list + 1] = b end end
-    if #list > 0 then
-      if g[2] ~= '' then body = body .. '<Text fontSize="13" color="#f4d03f" preferredHeight="18" alignment="MiddleLeft">' .. g[2] .. '</Text>'; h = h + 22 end
-      local cols = (g[1] == 'end') and 1 or 3; local rows = math.ceil(#list / cols)
-      body = body .. '<GridLayout cellSize="' .. (cols == 1 and 300 or 226) .. ' 32" spacing="6 6" childAlignment="MiddleCenter" preferredHeight="' .. (rows * 38) .. '">'
-      for _, b in ipairs(list) do body = body .. '<Button id="a_' .. b.id .. '" onClick="uiAct" fontSize="14"' .. (g[1] == 'end' and ' colors="#f4d03f|#ffe27a|#d8b52a|#888888"' or '') .. '>' .. esc(b.label) .. '</Button>' end
-      body = body .. '</GridLayout>'; h = h + rows * 38 + 6 end end
-  x = x .. '<Panel id="act" rectAlignment="LowerCenter" width="720" height="' .. h .. '" offsetXY="0 12" color="#2b1a14ee"' .. vis .. '><VerticalLayout padding="10" spacing="6" childForceExpandHeight="false">'
-  x = x .. '<Text fontSize="18" color="' .. ({ Red = '#ff8a7a', Blue = '#8fbaff', Green = '#7fdc9f' })[col] .. '" preferredHeight="24" fontStyle="Bold">' .. esc(P(a).name .. ' to act · round ' .. G.round .. ' · ' .. ({ stand = 'setup', biz = 'the market', place = 'the map', memo = 'payday' })[G.phase]) .. '</Text>' .. body
+    for r = 1, math.ceil(#list / 3) do
+      rowsXml = rowsXml .. '<HorizontalLayout preferredHeight="34" spacing="6" childForceExpandWidth="false" childAlignment="MiddleLeft">'
+      rowsXml = rowsXml .. '<Text fontSize="13" color="#f4d03f" preferredWidth="' .. LABW .. '" alignment="MiddleLeft">' .. (r == 1 and g[2] or '') .. '</Text>'
+      for k = (r - 1) * 3 + 1, math.min(#list, r * 3) do local b = list[k]
+        rowsXml = rowsXml .. '<Button id="a_' .. b.id .. '" onClick="uiAct" fontSize="14" preferredWidth="' .. BW .. '"' .. (g[1] == 'end' and ' colors="#f4d03f|#ffe27a|#d8b52a|#888888"' or '') .. '>' .. esc(b.label) .. '</Button>' end
+      rowsXml = rowsXml .. '</HorizontalLayout>'; h = h + 40
+    end end
+  x = x .. '<Panel id="act" rectAlignment="LowerCenter" width="' .. W .. '" height="' .. h .. '" offsetXY="0 12" color="#2b1a14ee"' .. vis .. '><VerticalLayout padding="10 10 8 8" spacing="6" childForceExpandHeight="false" childAlignment="UpperLeft">'
+  x = x .. '<Text fontSize="18" color="' .. ({ Red = '#ff8a7a', Blue = '#8fbaff', Green = '#7fdc9f' })[col] .. '" preferredHeight="24" fontStyle="Bold" alignment="MiddleLeft">' .. esc(P(a).name .. ' to act · round ' .. G.round .. ' · ' .. ({ stand = 'setup', biz = 'the market', place = 'the map', memo = 'payday' })[G.phase]) .. '</Text>' .. rowsXml
   x = x .. '</VerticalLayout></Panel>'
   return x
 end
@@ -610,7 +616,7 @@ local function dealPhysical(G)
   for pi, p in each(G.players) do local mat = 'mat' .. pi; local B = BOARD[mat]; local col = SEATCOL[pi + 1]
     local d = cardData('m', 'mach:hands', slot(mat, 'floor0'), B.rot, { CS, CS }, false, false); d.GMNotes = 'se|c:mach:hands'; objs['start:' .. pi] = spawnObjectData({ data = d })
     local ht = Player[col].getHandTransform and Player[col].getHandTransform()
-    if ht then for _, f in ipairs(FAMS) do for k = 1, (p.hand[f] or 0) do local h = cardData('h', 'ing:' .. f .. ':' .. E.FLAVOR[f][(k - 1) % 5], { x = ht.position.x, y = ht.position.y + 2, z = ht.position.z }, B.rot + 180, { CS, CS }, false, false); h.GMNotes = 'se|c:ing:' .. f; spawnObjectData({ data = h }) end end end
+    if ht then for _, f in ipairs(FAMS) do for k = 1, (p.hand[f] or 0) do local h = cardData('h', 'ing:' .. f .. ':' .. E.FLAVOR[f][(k - 1) % 5], { x = ht.position.x, y = ht.position.y + 2, z = ht.position.z }, B.rot, { CS, CS }, false, false); h.GMNotes = 'se|c:ing:' .. f; spawnObjectData({ data = h, callback_function = function(obj) Wait.condition(function() pcall(function() obj.deal(1, col) end) end, function() return loaded(obj) end, 10) end }) end end end
     for _, st in ipairs({ { 'cash', p.cash }, { 'loy', p.loy }, { 'stars', 0 }, { 'imp', 0 } }) do
       local q = slot(mat, st[1], 0, 0.15, 0.1)
       objs['ctr:' .. pi .. ':' .. st[1]] = spawnObjectData({ data = { Name = 'Counter', Transform = tf(q, B.rot, { 0.9, 0.9 }), GMNotes = 'se|ctr:' .. col .. ':' .. st[1], Counter = { value = st[2] } }, callback_function = function(o) if o.Counter then o.Counter.setValue(st[2]) end end })

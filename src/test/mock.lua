@@ -17,6 +17,8 @@ local function mkobj(data)
   o.setRotation = function(r) live() end; o.setRotationSmooth = function(r) live() end
   o.setScale = function(s) live(); o.scale = vec(s[1], s[2], s[3]) end
   o.setLock = function(b) o.locked = b end
+  o.getScale = function() return vec(o.scale.x, o.scale.y, o.scale.z) end
+  o.deal = function(n, col) live(); o.dealt = col end
   o.destruct = function() live(); o.dead = true end
   o.getBoundsNormalized = function() local ar = 1
       if data.CustomImage then local f = data.CustomImage.ImageURL:match('([^/]+)%.png$'); local L = LAYOUT.files[f]; if L then ar = L.h / L.w end end
