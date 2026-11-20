@@ -4702,7 +4702,7 @@ local function apply()
     if not alive(o) then spawnWanted(key, w); last[key] = w
     elseif not same(last[key], w) then
       if w.kind == 'text' and last[key] and last[key].s ~= w.s and last[key].kind == 'text' and math.abs(last[key].p.x - w.p.x) < 0.01 then o.TextTool.setValue(w.s)
-      elseif w.kind == 'card' and last[key] and (last[key].card ~= w.card or last[key].hand ~= w.hand) then o.destruct(); objs[key] = nil; spawnWanted(key, w)
+      elseif last[key] and (last[key].kind ~= w.kind or last[key].card ~= w.card or last[key].hand ~= w.hand or last[key].col ~= w.col) then o.destruct(); objs[key] = nil; spawnWanted(key, w) -- a different picture or colour: replace the piece
       elseif w.kind == 'card' and w.hand then -- hand cards stay where the hand puts them
       else o.setPositionSmooth({ w.p.x, w.p.y, w.p.z }, false, true); if w.kind == 'card' then o.setRotationSmooth({ 0, (w.rot or 0) + FACE + (w.tap and 90 or 0), w.flip and 180 or 0 }, false, true) end end
       last[key] = w
