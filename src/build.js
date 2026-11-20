@@ -33,6 +33,7 @@ const script = [
   `IMG = ${JSON.stringify(IMG)}`,
   `MANIFEST = ${lua(manifest)}`,
   `LAYOUT = ${lua(layout)}`,
+  `TILEFILES = ${lua(JSON.parse(fs.readFileSync(path.join(OUT, 'tilefiles.json'))))}`,
   'do\n' + fs.readFileSync(path.join(ROOT, 'js2lua/runtime.lua'), 'utf8') + '\nend',
   `GENOMES = {${champs.map(jsLua).join(',\n')}}`,
   'function loadEngine()\n' + fs.readFileSync(path.join(ROOT, 'js2lua/engine.lua'), 'utf8') + '\nend',

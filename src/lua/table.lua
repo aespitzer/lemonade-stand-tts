@@ -142,17 +142,24 @@ local function cardData(key, cardKey, p, roty, sc, flip, locked)
   return { Name = 'CardCustom', Transform = tf(p, roty, sc, flip), CardID = c.id * 100 + c.cell, CustomDeck = customDeck(c), GMNotes = 'se|' .. key, Nickname = '', Locked = locked ~= false, Hands = true, SidewaysCard = false }
 end
 local function spawnFrom(key, data, after)
+  btnLast[key] = nil
   local o = spawnObjectData({ data = data, callback_function = function(obj) if after then after(obj) end end })
   objs[key] = o; return o
 end
+local function tileOf(key, name, p) want[key] = { kind = 'tile', card = name, p = p, rot = 0 } end
 local function card(key, cardKey, p, opt) opt = opt or {}
   want[key] = { kind = 'card', card = cardKey, p = p, rot = opt.rot or 0, sc = opt.sc or { CS, CS }, flip = opt.flip, hand = opt.hand, tap = opt.tap, label = opt.label } end
 local function chip(key, col, p, sc) want[key] = { kind = 'chip', col = col, p = p, sc = sc or 0.55 } end
 local function pawn(key, col, p) want[key] = { kind = 'pawn', col = col, p = p } end
-local function text(key, s, p, rot, size, col) want[key] = { kind = 'text', s = s, p = p, rot = rot or 0, size = math.floor((size or 40) * 1.8), col = col } end
+local function text(key, s, p, rot, size, col) want[key] = { kind = 'text', s = s, p = p, rot = rot or 0, size = size or 30, col = col } end
 
 local function colorOf(c) if type(c) == 'string' then local r = RGB[c] or { 1, 1, 1 }; return { r = r[1], g = r[2], b = r[3] } end return { r = c[1], g = c[2], b = c[3] } end
 local function spawnWanted(key, w)
+  if w.kind == 'tile' then
+    local k = S.tileScale or 1.4
+    return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, 0, { k, k }), Locked = true, GMNotes = 'se|' .. key,
+      CustomImage = { ImageURL = IMG .. TILEFILES['tile:' .. w.card], ImageSecondaryURL = IMG .. 'tile-back.png', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 0, Thickness = 0.12, Stackable = false, Stretch = true } } })
+  end
   if w.kind == 'card' then
     local d = cardData(key, w.card, w.hand and { x = w.p.x, y = w.p.y + 2, z = w.p.z } or w.p, w.rot + (w.tap and 90 or 0), w.sc, w.flip, not w.hand)
     if w.hand then return spawnFrom(key, d, function(obj) Wait.condition(function() pcall(function() obj.deal(1, w.hand) end) end, function() return loaded(obj) end, 10) end) end
@@ -218,7 +225,7 @@ local function boardsUp(n, after)
         return bd.size.x / sx, bd.size.z / sz end -- getBoundsNormalized gives the size as if unrotated
       local function shaped() if not loaded(o) then return false end local w0, h0 = size(); if not w0 or h0 <= 0 then return false end
         local want = B.w / B.h; return math.abs(w0 / h0 - want) < 0.06 * want end
-      local function fit() local w0 = size(); if w0 and w0 > 0.01 then local k = B.w / w0; o.setScale({ k, 1, k }) end
+      local function fit() local w0 = size(); if w0 and w0 > 0.01 then local k = B.w / w0; o.setScale({ k, 1, k }); if b == 'map' then S.tileScale = k * 2.85 / B.w end end
         o.setPosition({ p.x, p.y, p.z }); o.interactable = false; done() end
       Wait.condition(fit, shaped, 30, fit)
     end
@@ -240,7 +247,7 @@ local function buildWant()
   for _, c in each(G.map.cells) do
     S.cellName[c.id] = c.name
     local base = slot('map', c.id, 0, 0, 0.1)
-    card('tile:' .. c.id, 'tile:' .. c.name, base, { sc = { 2.8 / CARD_W, 2.8 / CARD_H } })
+    tileOf('tile:' .. c.id, c.name, base)
     local at = function(du, dv, dy) return slot('map', c.id, du, dv, 0.25 + (dy or 0)) end
     for pi = 0, n - 1 do local k = c.tok[pi] or 0
       for j = 0, k - 1 do chip('tok:' .. c.id .. ':' .. pi .. ':' .. j, SEATCOL[pi + 1], at(-0.85 + pi * 0.85, -0.15, j * 0.2)) end end
@@ -252,21 +259,21 @@ local function buildWant()
   end
   -- the common board
   for i, m in each(G.mkt) do card('mkt:' .. i, 'mach:' .. m.id, slot('common', 'mkt' .. i)) end
-  card('deck:mach', 'mach:hands', slot('common', 'mdeck'), { flip = true }); text('n:mdeck', alen(G.mdeck) .. ' left', slot('common', 'mdeck', 0, 2.65), 0, 34)
-  card('deck:ing', 'ing:sour:Lemon', slot('common', 'ideck'), { flip = true }); text('n:ideck', alen(G.deck) .. ' cards', slot('common', 'ideck', 0, 2.65), 0, 34)
+  card('deck:mach', 'mach:hands', slot('common', 'mdeck'), { flip = true }); text('n:mdeck', alen(G.mdeck) .. ' left', slot('common', 'mdeck', 0, 2.55), 0, 28)
+  card('deck:ing', 'ing:sour:Lemon', slot('common', 'ideck'), { flip = true }); text('n:ideck', alen(G.deck) .. ' cards', slot('common', 'ideck', 0, 2.55), 0, 28)
   for _, f in ipairs(FAMS) do local pile = G.piles[f]; local np = alen(pile)
     if np > 0 then local top = pile[np - 1]; card('pile:' .. f, 'ing:' .. f .. ':' .. top.n, slot('common', 'pile_' .. f)) end
-    text('n:pile:' .. f, np .. ' in pile', slot('common', 'pile_' .. f, 0, 2.65), 0, 34) end
+    text('n:pile:' .. f, np .. ' in pile', slot('common', 'pile_' .. f, 0, 2.55), 0, 28) end
   if G.choice then for i, c in each(G.choice.cards) do if not c.taken then card('choice:' .. i, 'ing:' .. c.f .. ':' .. c.n, slot('common', 'choice' .. i)) end end end
   for i = 0, alen(G.rrow) - 1 do local c = G.rrow[i]; if c then card('rrow:' .. i, 'res:' .. c.id, slot('common', 'rrow' .. i), { flip = true }) end end
   if alen(G.rdeck) > 0 then card('deck:res', 'adv:' .. E.ADVISORS[0].id, slot('common', 'rdeck'), { flip = true }) end
-  text('n:rdeck', alen(G.rdeck) .. ' left', slot('common', 'rdeck', 0, 2.65), 0, 34)
+  text('n:rdeck', alen(G.rdeck) .. ' left', slot('common', 'rdeck', 0, 2.55), 0, 28)
   for i, a in each(G.arow) do card('arow:' .. i, 'adv:' .. a.id, slot('common', 'arow' .. i)) end
   if G.offer then card('offer', 'adv:' .. G.offer.a.id, slot('common', 'memoplay', 0, 0, 0.4)) end
   if alen(G.ideck) > 0 then card('deck:inf', 'inf:recall:0', slot('common', 'infdeck'), { flip = true }) end
-  text('n:infdeck', alen(G.ideck) .. ' left', slot('common', 'infdeck', 0, 2.65), 0, 34)
+  text('n:infdeck', alen(G.ideck) .. ' left', slot('common', 'infdeck', 0, 2.55), 0, 28)
   local nd = alen(G.idisc); if nd > 0 then local c = G.idisc[nd - 1]; if c and CARDS['inf:' .. c.t .. ':' .. c.x] then card('infdisc', 'inf:' .. c.t .. ':' .. c.x, slot('common', 'infdisc')) end end
-  card('deck:memo', 'memo:0', slot('common', 'memodeck'), { flip = true }); text('n:memo', (alen(E.MEMOS) - (G.memoAt or 0)) .. ' left', slot('common', 'memodeck', 0, 2.65), 0, 34)
+  card('deck:memo', 'memo:0', slot('common', 'memodeck'), { flip = true }); text('n:memo', (alen(E.MEMOS) - (G.memoAt or 0)) .. ' left', slot('common', 'memodeck', 0, 2.55), 0, 28)
   if G.pending then card('memoplay', 'memo:' .. G.pending.id, slot('common', 'memoplay')) end
   pawn('round', { 0.95, 0.82, 0.25 }, slot('common', 'round' .. math.min(G.round, E.MAXROUND)))
   pawn('heat', { 0.89, 0.34, 0.18 }, slot('common', 'heat' .. math.max(0, math.min(G.heat, 8))))
@@ -283,14 +290,14 @@ local function buildWant()
     local cover = E.TX - tl; local cont = math.min(p.cont or 0, cover)
     for k = 0, cover - 1 do local sp = E.TX - 1 - k; chip('cover:' .. pi .. ':' .. k, k < cont and { 0.12, 0.42, 0.29 } or { 0.96, 0.77, 0.19 }, slot(mat, 'trk' .. sp), 0.5) end
     local hand = p.hand
-    text('lab:name:' .. pi, (p.name or SEATCOL[pi + 1]) .. ' · era ' .. p.era .. (p.bot and ' (bot)' or ''), slot(mat, 'name'), B.rot, 34, SEATCOL[pi + 1])
-    text('lab:cash:' .. pi, tostring(p.cash), slot(mat, 'cash', 0, 0.15), B.rot, 70)
-    text('lab:loy:' .. pi, tostring(p.loy), slot(mat, 'loy', 0, 0.15), B.rot, 70)
-    text('lab:stars:' .. pi, E.starText(p.stars), slot(mat, 'stars', 0, 0.15), B.rot, 34)
-    text('lab:imp:' .. pi, tostring(p.imp or 0), slot(mat, 'imp', 0, 0.15), B.rot, 70)
-    text('lab:hand:' .. pi, (hand.sweet or 0) .. ' / ' .. (hand.sour or 0) .. ' / ' .. (hand.herb or 0) .. ' / ' .. (hand.fizz or 0), slot(mat, 'hand', 0, 0.15), B.rot, 34)
-    text('lab:inf:' .. pi, tostring(alen(p.inf)), slot(mat, 'inf', 0, 0.15), B.rot, 70)
-    text('lab:note:' .. pi, (p.prog .. ' of ' .. tl .. ' pitchers to era ' .. (p.era + 1)) .. (p.jail and '\nIn custody' or ''), slot(mat, 'note'), B.rot, 26)
+    text('lab:name:' .. pi, (p.name or SEATCOL[pi + 1]) .. ' · era ' .. p.era .. (p.bot and ' (bot)' or ''), slot(mat, 'name', 0, -0.1), B.rot, 52, SEATCOL[pi + 1])
+    text('lab:cash:' .. pi, tostring(p.cash), slot(mat, 'cash', 0, -0.1), B.rot, 76)
+    text('lab:loy:' .. pi, tostring(p.loy), slot(mat, 'loy', 0, -0.1), B.rot, 76)
+    text('lab:stars:' .. pi, E.starText(p.stars), slot(mat, 'stars', 0, -0.05), B.rot, 48)
+    text('lab:imp:' .. pi, tostring(p.imp or 0), slot(mat, 'imp', 0, -0.1), B.rot, 76)
+    text('lab:hand:' .. pi, (hand.sweet or 0) .. '/' .. (hand.sour or 0) .. '/' .. (hand.herb or 0) .. '/' .. (hand.fizz or 0), slot(mat, 'hand', 0, -0.05), B.rot, 46)
+    text('lab:inf:' .. pi, tostring(alen(p.inf)), slot(mat, 'inf', 0, -0.1), B.rot, 76)
+    text('lab:note:' .. pi, (p.prog .. ' of ' .. tl .. ' pitchers to era ' .. (p.era + 1)) .. (p.jail and '\nIn custody' or ''), slot(mat, 'note', 0, -0.1), B.rot, 34)
     -- hands: ingredient cards and influence cards, hidden
     local col = SEATCOL[pi + 1]; local ht = Player[col] and Player[col].getHandTransform and Player[col].getHandTransform()
     if ht then local hp = { x = ht.position.x, y = ht.position.y, z = ht.position.z }
@@ -301,9 +308,9 @@ local function buildWant()
   -- what is happening
   local a = actor(); local p = P(a)
   local lines = {}
-  local nl = alen(G.log); for k = math.max(0, nl - 4), nl - 1 do lines[#lines + 1] = G.log[k].text end
+  local nl = alen(G.log); for k = math.max(0, nl - 3), nl - 1 do local t = G.log[k].text; lines[#lines + 1] = (#t > 64) and (t:sub(1, 62) .. '...') or t end
   local head = G.winner ~= nil and (P(G.winner).name .. ' wins.') or ('Round ' .. G.round .. ' · ' .. ({ stand = 'setup', biz = 'the market', place = 'the map', memo = 'payday memos' })[G.phase] .. ' · ' .. p.name .. ' to act')
-  text('status', head .. '\n' .. table.concat(lines, '\n'), slot('common', 'status'), 0, 26)
+  text('status', head .. '\n' .. table.concat(lines, '\n'), slot('common', 'status'), 0, 30)
 end
 
 --[[ ---------- the action panel ---------- ]]
@@ -347,7 +354,7 @@ local function cardButtons()
     local w = want2[key]; local label = w and w[1] or nil
     if btnLast[key] ~= label and alive(o) then
       o.clearButtons()
-      if w then local sc = (last[key] and last[key].sc) or { CS, CS }; local flip = last[key] and last[key].flip
+      if w then local sc = (last[key] and last[key].kind == 'tile') and { S.tileScale or 1.4, S.tileScale or 1.4 } or (last[key] and last[key].sc) or { CS, CS }; local flip = last[key] and last[key].flip
         o.createButton({ click_function = 'onCardClick', function_owner = Global, label = label, position = { 0, flip and -0.3 or 0.3, 0 }, rotation = flip and { 0, 0, 180 } or { 0, 0, 0 },
           width = 1500, height = 520, font_size = 230, color = { 0.96, 0.82, 0.25, 0.95 }, hover_color = { 1, 0.9, 0.45, 1 }, font_color = { 0.17, 0.1, 0.08, 1 },
           scale = { 0.6 / sc[1], 1, 0.6 / sc[2] }, tooltip = label }) end
@@ -390,6 +397,8 @@ local function buildActions()
     return end
   if G.phase == 'biz' then
     dialog = 'Click a card to act: buy a machine or ingredients, research, hire, or run one of your machines. One thing a turn.'
+    B('draw', 'Buy three, keep one', E.canDraw(G), 'ingredients')
+    for _, f in ipairs(FAMS) do B('take_' .. f, 'Buy ' .. E.FNAME[f] .. ' from the pile', E.canTake(G, f), 'ingredients') end
     if ok(E.canBail(G)) then B('bail', 'Post bail', E.canBail(G), 'more') end
     for i, m in each(p.mach) do
       B('frun_' .. i, 'Free run: ' .. m.name, E.canRun(G, i, 'free'), 'more'); B('rerun_' .. i, 'Re-run ' .. m.name, E.canRun(G, i, 'rerun'), 'more'); B('hal_' .. i, 'HAL runs ' .. m.name, E.canRun(G, i, true), 'more') end
@@ -426,7 +435,7 @@ local function setupXml()
     '<Button id="start" onClick="uiStart" preferredHeight="50" fontSize="22" colors="#2f9e5b|#43b06c|#227a45|#888888" textColor="#ffffff">Set up the table</Button>' ..
     '</VerticalLayout></Panel>'
 end
-local GROUPS = { { 'answer', 'Choose' }, { 'influence', 'Influence' }, { 'more', 'Also' }, { 'scrap', 'Scrap to shelf' }, { 'end', 'Done' } }
+local GROUPS = { { 'answer', 'Choose' }, { 'ingredients', 'Ingredients' }, { 'influence', 'Influence' }, { 'more', 'Also' }, { 'scrap', 'Scrap to shelf' }, { 'end', 'Done' } }
 local function panelXml()
   local x = '<Panel id="tools" rectAlignment="UpperRight" width="230" height="' .. (S.mode == 'full' and 90 or 250) .. '" offsetXY="-10 -60" color="#2b1a14e6"><VerticalLayout padding="6" spacing="4">'
   x = x .. '<Button id="rec" onClick="uiRecord">Write the record to the Notebook</Button>'
@@ -583,7 +592,7 @@ local function dealPhysical(G)
   local n = alen(G.players)
   S.cellName = {}
   for _, c in each(G.map.cells) do S.cellName[c.id] = c.name
-    card('tile:' .. c.id, 'tile:' .. c.name, slot('map', c.id, 0, 0, 0.1), { sc = { 2.8 / CARD_W, 2.8 / CARD_H } })
+    tileOf('tile:' .. c.id, c.name, slot('map', c.id, 0, 0, 0.1))
     local at = function(du, dv) return slot('map', c.id, du, dv, 0.3) end
     if c.home ~= nil then card('stand:' .. c.id, 'stand:' .. c.home, at(-1.02, -1.02), { sc = { 0.72 / CARD_W, 0.72 / CARD_H } }) end
     if c.bonus then local bk; for bi, b in each(E.BONUS) do for k in pairs(b) do if c.bonus[k] == b[k] then bk = bi end end end
@@ -708,7 +717,7 @@ function uiCosts(player)
     if c and d[id] then local t = cells[c.name]; local own = t and controlOf(t)
       local cost = math.max(1, 1 + d[id] + ((c.rough and own ~= col) and 2 or 0))
       o.createButton({ click_function = 'noop', function_owner = Global, label = tostring(cost), position = { 0, 0.3, 0 }, width = 380, height = 380, font_size = 260,
-        color = { 0.17, 0.1, 0.08, 0.8 }, font_color = colorOf(col), scale = { 1 / (2.8 / CARD_W), 1, 1 / (2.8 / CARD_H) } }) end end end
+        color = { 0.17, 0.1, 0.08, 0.8 }, font_color = colorOf(col), scale = { 1 / (S.tileScale or 1.4), 1, 1 / (S.tileScale or 1.4) } }) end end end
   broadcastToColor('Loyalty cost of one token in each market for ' .. col .. '. Advisors that change costs are not counted. Click Show token costs again after the map changes.', col, { 1, 0.9, 0.5 })
   Wait.time(function() for key, o in pairs(objs) do if key:sub(1, 5) == 'tile:' and o.clearButtons then o.clearButtons() end end end, 30)
 end
@@ -781,7 +790,7 @@ end
 --[[ ---------- save and load ---------- ]]
 function onSave()
   if not S then return '' end
-  local keep = { v = VERSION, mode = S.mode, np = S.np, seats = S.seats, setup = S.setup, speed = S.speed, anyone = S.anyone, log = S.log, lastRound = S.lastRound, wroteEnd = S.wroteEnd, cellName = S.cellName, cardW = S.cardW, cardH = S.cardH }
+  local keep = { v = VERSION, mode = S.mode, np = S.np, seats = S.seats, setup = S.setup, speed = S.speed, anyone = S.anyone, log = S.log, lastRound = S.lastRound, wroteEnd = S.wroteEnd, cellName = S.cellName, cardW = S.cardW, cardH = S.cardH, tileScale = S.tileScale }
   local okk, out = pcall(function() return JSON.encode(keep) .. '\n' .. (S.G and serialize(S.G) or '') .. '\n' .. (S.deal and serialize(S.deal) or '') end)
   return okk and out or ''
 end

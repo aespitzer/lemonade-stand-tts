@@ -27,7 +27,7 @@ for o in G.getObjects().values():
         top = d.ContainedObjects[len(d.ContainedObjects)]; cd = top.CustomDeck[int(top.CardID // 100)]
         e['card'] = {'face': cd.FaceURL.split('/')[-1], 'back': cd.BackURL.split('/')[-1], 'cols': cd.NumWidth, 'rows': cd.NumHeight, 'cell': int(top.CardID % 100), 'unique': bool(cd.UniqueBack)}
         e['deckN'] = len(d.ContainedObjects)
-    if d.CustomImage is not None: e['image'] = d.CustomImage.ImageURL.split('/')[-1]
+    if d.CustomImage is not None: e['image'] = d.CustomImage.ImageURL.split('/img/v2/')[-1].split('/img/v1/')[-1]
     if d.Name == '3DText': e['text'] = o.text; e['fontSize'] = d.Text.fontSize; c = d.Text.colorstate; e['color'] = [c.r, c.g, c.b] if c else None
     if d.ColorDiffuse is not None: e['color'] = [d.ColorDiffuse.r, d.ColorDiffuse.g, d.ColorDiffuse.b]
     if o.buttons and len(o.buttons): b = o.buttons[1]; e['button'] = {'label': b.label, 'w': b.width, 'h': b.height, 'font': b.font_size, 'scale': [b.scale[1], b.scale[3]] if b.scale else [1, 1], 'y': b.position[2], 'flip': bool(b.rotation and b.rotation[3] == 180)}

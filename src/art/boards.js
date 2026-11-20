@@ -32,7 +32,7 @@ function commonBoard() {
   E.FAMS.forEach((f, i) => { s['pile_' + f] = [20.4 + i * 2.8, rowA, CW, CH]; lab['pile_' + f] = E.FNAME[f]; });
   for (let i = 0; i < 3; i++) { s['choice' + i] = [32.4 + i * 2.8, rowA, CW, CH]; lab['choice' + i] = 'Turned over'; }
   s.rdeck = [1.6, rowB, CW, CH]; lab.rdeck = 'Research';
-  for (let i = 0; i < E.RROW; i++) { s['rrow' + i] = [4.6 + i * 2.8, rowB, CW, CH]; lab['rrow' + i] = ''; }
+  for (let i = 0; i < E.RROW; i++) { s['rrow' + i] = [4.6 + i * 2.8, rowB, CW, CH]; lab['rrow' + i] = 'Research row'; }
   for (let i = 0; i < E.ABOARD; i++) { s['arow' + i] = [17.4 + i * 2.8, rowB, CW, CH]; lab['arow' + i] = 'Advisor'; }
   s.infdeck = [29.6, rowB, CW, CH]; lab.infdeck = 'Influence';
   s.infdisc = [32.4, rowB, CW, CH]; lab.infdisc = 'Played';
@@ -40,16 +40,15 @@ function commonBoard() {
   s.memoplay = [38.0, rowB, CW, CH]; lab.memoplay = 'Memo in play';
   for (let r = 1; r <= E.MAXROUND; r++) s['round' + r] = [1.6 + (r - 1) * 1.55, 9.75, 1.35, 1.2];
   for (let h = 0; h <= 8; h++) s['heat' + h] = [1.6 + h * 1.55, 12.0, 1.35, 1.2];
-  s.status = [30.5, 11.0, 17, 3.6];
+  s.status = [31.6, 11.75, 15.6, 2.2];
   L.common = { w: W, h: H, slots: s };
   const boxes = Object.entries(s).filter(([k]) => /^round|^heat/.test(k)).map(([k, [cx, cy, w, h]]) => `<div class="box" style="left:${u(cx - w / 2)}px;top:${u(cy - h / 2)}px;width:${u(w)}px;height:${u(h)}px">${k.replace(/\D/g, '')}${k.startsWith('heat') && +k.slice(4) ? '' : ''}</div>`).join('');
   const tolLabels = E.TOL.map((t, i) => `<div class="sm" style="left:${u(1.6 + t * 1.55 - 0.7)}px;top:${u(12.7)}px;width:${u(1.4)}px;text-align:center;font-size:17px;color:#b3261e">raid ${['I', 'II', 'III', 'IV'][i]}</div>`).join('');
   const html = `<div class="b" style="width:${u(W)}px;height:${u(H)}px;background:linear-gradient(#efe6d2,#e6d9bd);border:14px solid #2b1a14;border-radius:30px">
     <div class="lab" style="left:${u(3.4)}px;top:${u(0.08)}px;font-size:30px">THE COUNTER</div><div class="lab" style="left:${u(16.4)}px;top:${u(0.08)}px;font-size:30px">INGREDIENTS</div><div class="lab" style="left:${u(31.2)}px;top:${u(0.08)}px;font-size:30px">BUY THREE, KEEP ONE</div>
-    <div class="lab" style="left:${u(3.4)}px;top:${u(4.38)}px;font-size:30px">THE RESEARCH ROW</div><div class="lab" style="left:${u(16.4)}px;top:${u(4.38)}px;font-size:30px">THE ADVISOR BOARD</div>
     ${slotsHTML(s, Object.fromEntries(Object.keys(s).filter(k => /^round|^heat|^status/.test(k)).map(k => [k, null]).concat(Object.entries(lab))))}
     <div class="lab" style="left:${u(0.5)}px;top:${u(8.55)}px;font-size:26px">ROUND</div><div class="lab" style="left:${u(0.5)}px;top:${u(10.8)}px;font-size:26px">HEAT</div>${boxes}${tolLabels}
-    <div class="sm" style="left:${u(24.6)}px;top:${u(8.9)}px;width:${u(14.8)}px;font-size:22px">Each round: the market (one thing per turn, until everyone passes), then the map (place loyalty or capital tokens), then payday. The first company to era 12, or to research the Secret Formula, wins.</div>
+    <div class="sm" style="left:${u(23.8)}px;top:${u(8.75)}px;width:${u(15.8)}px;font-size:20px">Each round: the market (one thing per turn, until everyone passes), then the map (place loyalty or capital tokens), then payday. The first company to era 12, or to research the Secret Formula, wins.</div>
   </div>`;
   return { name: 'board-common', html, w: W, h: H };
 }

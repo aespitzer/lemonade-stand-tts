@@ -10,7 +10,7 @@ const imgs = {}; for (const o of scene.objects) { if (o.card) { imgs[o.card.face
 const data = Object.fromEntries(Object.keys(imgs).map(f => [f, 'data:image/png;base64,' + fs.readFileSync(IMG + f).toString('base64')]));
 const html = `<!doctype html><meta charset="utf-8"><body style="margin:0;background:#222"><canvas id="c"></canvas><script>
 const S = ${JSON.stringify(scene)}, IMGS = ${JSON.stringify(data)};
-const BUILTIN = { Chip_10: 1.5, Chip_1000: 1.5, PlayerPawn: 1.1, Checker_white: 1.6, Counter: [2.2, 1.1], Infinite_Bag: 2.0, textUnit: 1 / 90, buttonUnit: 1 / 500 };
+const BUILTIN = { Chip_10: 1.5, Chip_1000: 1.5, PlayerPawn: 1.1, Checker_white: 1.6, Counter: [2.2, 1.1], Infinite_Bag: 2.0, textUnit: 1 / 60, buttonUnit: 1 / 500 };
 const W = 2400, H = 2000, PPU = 26, CX = W / 2, CY = H / 2 + 60;
 const c = document.getElementById('c'); c.width = W; c.height = H; const g = c.getContext('2d');
 const scr = (x, z) => [CX + x * PPU, CY - z * PPU];
