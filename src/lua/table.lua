@@ -32,22 +32,27 @@ local function loaded(o) local okk, r = pcall(function() return (not o.spawning)
 local function alive(o) if o == nil then return false end local okk, g = pcall(function() return o.getGUID() end); return okk and g ~= nil end
 
 -- lossless save format for engine values: arrays as ["\1", ...], numeric object keys as "#n"
-local function ser(v, out)
-  local ty = type(v)
-  if v == nil then out[#out + 1] = 'null'
-  elseif ty == 'boolean' then out[#out + 1] = v and 'true' or 'false'
-  elseif ty == 'number' then out[#out + 1] = (v ~= v) and '"\2NaN"' or (v == math.huge and '"\2inf"' or (v == -math.huge and '"\2-inf"' or __numstr(v)))
-  elseif ty == 'string' then out[#out + 1] = JS_JSON.stringify(v)
-  elseif ty == 'table' then
-    if __isarr(v) then out[#out + 1] = '["\1"'; for i = 0, v.__n - 1 do out[#out + 1] = ','; ser(v[i], out) end out[#out + 1] = ']'
-    else out[#out + 1] = '{'; local first = true
-      for _, k in ipairs(__keys(v)) do local x = v[k]; if x ~= nil and type(x) ~= 'function' and not (type(x) == 'table' and getmetatable(x) and not __isarr(x)) then
-        if not first then out[#out + 1] = ',' end first = false
-        out[#out + 1] = JS_JSON.stringify(type(k) == 'number' and ('#' .. __numstr(k)) or k); out[#out + 1] = ':'; ser(x, out) end end
-      out[#out + 1] = '}' end
+-- (each piece goes at an index we count ourselves: MoonSharp's # on a long table is slow, which made saving take half a minute)
+local function serialize(v)
+  local out, n = {}, 0
+  local function put(x) n = n + 1; out[n] = x end
+  local function ser(v)
+    local ty = type(v)
+    if v == nil then put('null')
+    elseif ty == 'boolean' then put(v and 'true' or 'false')
+    elseif ty == 'number' then put((v ~= v) and '"\2NaN"' or (v == math.huge and '"\2inf"' or (v == -math.huge and '"\2-inf"' or __numstr(v))))
+    elseif ty == 'string' then put(JS_JSON.stringify(v))
+    elseif ty == 'table' then
+      if __isarr(v) then put('["\1"'); for i = 0, v.__n - 1 do put(','); ser(v[i]) end put(']')
+      else put('{'); local first = true
+        for _, k in ipairs(__keys(v)) do local x = v[k]; if x ~= nil and type(x) ~= 'function' and not (type(x) == 'table' and getmetatable(x) and not __isarr(x)) then
+          if not first then put(',') end first = false
+          put(JS_JSON.stringify(type(k) == 'number' and ('#' .. __numstr(k)) or k)); put(':'); ser(x) end end
+        put('}') end
+    end
   end
+  ser(v); return table.concat(out, '', 1, n)
 end
-local function serialize(v) local out = {}; ser(v, out); return table.concat(out) end
 local function deserialize(s)
   local i = 1
   local function ws() i = s:find('[^%s]', i) or #s + 1 end

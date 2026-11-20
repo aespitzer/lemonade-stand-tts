@@ -385,24 +385,25 @@ local function jstr(s)
     if c == '"' then return '\\"' elseif c == '\\' then return '\\\\' elseif c == '\n' then return '\\n' elseif c == '\r' then return '\\r' elseif c == '\t' then return '\\t' end
     return sfmt('\\u%04x', sbyte(c)) end) .. '"'
 end
-local function enc(v, out)
+local function enc(v, out) -- out.n counts the pieces (MoonSharp's # on a long table is slow)
+  local function put(x) local n = out.n + 1; out.n = n; out[n] = x end
   local ty = type(v)
-  if v == nil then out[#out + 1] = 'null'
-  elseif ty == 'boolean' then out[#out + 1] = v and 'true' or 'false'
-  elseif ty == 'number' then out[#out + 1] = (v ~= v or v == huge or v == -huge) and 'null' or numstr(v)
-  elseif ty == 'string' then out[#out + 1] = jstr(v)
-  elseif ty == 'function' then out[#out + 1] = 'null'
-  elseif isarr(v) then out[#out + 1] = '['; for i = 0, v.__n - 1 do if i > 0 then out[#out + 1] = ',' end local x = v[i]; if type(x) == 'function' then x = nil end enc(x, out) end out[#out + 1] = ']'
+  if v == nil then put('null')
+  elseif ty == 'boolean' then put(v and 'true' or 'false')
+  elseif ty == 'number' then put((v ~= v or v == huge or v == -huge) and 'null' or numstr(v))
+  elseif ty == 'string' then put(jstr(v))
+  elseif ty == 'function' then put('null')
+  elseif isarr(v) then put('['); for i = 0, v.__n - 1 do if i > 0 then put(',') end local x = v[i]; if type(x) == 'function' then x = nil end enc(x, out) end put(']')
   else
     local mt = getmetatable(v)
-    if mt == SET or mt == MAP then out[#out + 1] = '{}'; return end
-    out[#out + 1] = '{'; local first = true
+    if mt == SET or mt == MAP then put('{}'); return end
+    put('{'); local first = true
     for _, k in ipairs(keys(v)) do local x = v[k]
-      if x ~= nil and type(x) ~= 'function' then if not first then out[#out + 1] = ',' end first = false; out[#out + 1] = jstr(type(k) == 'number' and numstr(k) or k); out[#out + 1] = ':'; enc(x, out) end end
-    out[#out + 1] = '}'
+      if x ~= nil and type(x) ~= 'function' then if not first then put(',') end first = false; put(jstr(type(k) == 'number' and numstr(k) or k)); put(':'); enc(x, out) end end
+    put('}')
   end
 end
-JS_JSON.stringify = function(v) local out = {}; enc(v, out); return tconcat(out) end
+JS_JSON.stringify = function(v) local out = { n = 0 }; enc(v, out); return tconcat(out, '', 1, out.n) end
 local function nowms() local ok, t = pcall(function() return os.time() end); return (ok and t or 0) * 1000 end
 JS_Date = { now = nowms, new = function() return { toISOString = function() local ok, s = pcall(function() return os.date('!%Y-%m-%dT%H:%M:%S.000Z') end); return ok and s or '' end } end }
 JS_isNaN = function(x) x = tonum(x); return x ~= x end
