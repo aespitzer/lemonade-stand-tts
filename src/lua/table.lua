@@ -208,9 +208,9 @@ local function boardsUp(n, after)
   for _, b in ipairs({ 'felt', 'common', 'map', 'mat0', 'mat1', 'mat2' }) do local B = BOARD[b]
     if B and not alive(objs['board:' .. b]) then
       pending = pending + 1
-      local p = { x = B.x, y = (b == 'felt') and 0.8 or 1.0, z = B.z }
+      local p = { x = B.x, y = (b == 'felt') and 0.3 or 0.9, z = B.z } -- the felt's top is below the boards' bottom; the boards' top is below the pieces
       local o = spawnObjectData({ data = { Name = 'Custom_Tile', Transform = tf(p, B.rot, { 1, 1 }), Locked = true, GMNotes = 'se|board:' .. b,
-        CustomImage = { ImageURL = IMG .. B.file .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 0, Thickness = (b == 'felt') and 0.4 or 0.1, Stackable = false, Stretch = true } } } })
+        CustomImage = { ImageURL = IMG .. B.file .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 0, Thickness = (b == 'felt') and 0.2 or 0.1, Stackable = false, Stretch = true } } } })
       objs['board:' .. b] = o
       local function size() local okk, bd = pcall(function() return o.getBoundsNormalized() end)
         if not (okk and bd and bd.size) then return nil end
