@@ -9,6 +9,7 @@ const items = {
   'coin-1': piece(['#ffe58a', '#e3ac1c'], '#9c6b05', '#5a3d02', C.ICON.cash, 1),
   'coin-5': piece(['#f2c25a', '#b5780a'], '#5e3c03', '#3a2401', C.ICON.cash, 5),
   'heart-1': piece(['#ffd1cb', '#e9776b'], '#8f2318', '#5e140d', C.ICON.loy, 1),
+  'pitcher': `<div style="width:256px;height:256px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fffbe0,#f4d03f);box-shadow:inset 0 0 0 14px #7a5d06,inset 0 0 0 20px rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center"><i style="width:150px;height:150px;display:block">${C.ICON.out}</i></div>`,
   'heart-5': piece(['#f29a8f', '#c43b2e'], '#5e140d', '#ffffff', C.ICON.loy, 5),
 };
 (async () => {

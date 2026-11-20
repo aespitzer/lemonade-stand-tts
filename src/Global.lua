@@ -4667,7 +4667,7 @@ local function colorOf(c) if type(c) == 'string' then local r = RGB[c] or { 1, 1
 local function spawnWanted(key, w)
   if w.kind == 'token' then
     local k = (S.tileScale or 1.4) * w.d / 2.85
-    return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, 0, { k, k }), Locked = true, GMNotes = 'se|' .. key, Nickname = w.card:find('coin') and 'Capital' or 'Loyalty',
+    return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, 0, { k, k }), Locked = true, GMNotes = 'se|' .. key, Nickname = w.card:find('coin') and 'Capital' or (w.card:find('heart') and 'Loyalty' or 'Pitcher'),
       CustomImage = { ImageURL = IMG .. w.card .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = false, Stretch = true } } })
   end
   if w.kind == 'tile' then
@@ -4801,7 +4801,7 @@ local function buildWant()
     for i, t in each(p.tiles) do if CARDS['res:' .. t.id] then card('tiles:' .. pi .. ':' .. i, 'res:' .. t.id, slot(mat, 'tiles', -3.0 + i * 1.0, 0, 0.02 * i), { rot = B.rot, sc = { CS * 0.8, CS * 0.8 } }) end end
     pawn('era:' .. pi, SEATCOL[pi + 1], slot(mat, 'era' .. math.min(p.era, 12)))
     local tl = E.trackLen(p)
-    if p.prog > 0 then pawn('prog:' .. pi, SEATCOL[pi + 1], slot(mat, 'trk' .. math.min(p.prog, tl) - 1)) end
+    for k = 0, math.min(p.prog, tl) - 1 do token('pit:' .. pi .. ':' .. k, 'pitcher', slot(mat, 'trk' .. k, 0, 0, 0.05), 1.15) end -- a pitcher on every space filled
     local cover = E.TX - tl; local cont = math.min(p.cont or 0, cover)
     for k = 0, cover - 1 do local sp = E.TX - 1 - k; chip('cover:' .. pi .. ':' .. k, k < cont and { 0.12, 0.42, 0.29 } or { 0.96, 0.77, 0.19 }, slot(mat, 'trk' .. sp), 0.5) end
     local hand = p.hand
@@ -5179,13 +5179,13 @@ local function dealPhysical(G)
     objs['bag:' .. pi] = spawnObjectData({ data = { Name = 'Infinite_Bag', Transform = tf(slot(mat, 'note', 0, 0, 0.3), B.rot, { 0.8, 0.8 }), ColorDiffuse = colorOf(col), Nickname = col .. ' loyalty tokens',
       ContainedObjects = { { Name = 'Chip_10', ColorDiffuse = colorOf(col), Transform = tf({ x = 0, y = 0, z = 0 }, 0, { 0.55, 0.55 }), GMNotes = 'se|loy:' .. col } } } })
     objs['era:' .. pi] = spawnObjectData({ data = { Name = 'PlayerPawn', Transform = tf(slot(mat, 'era1'), 0, { 0.45, 0.45 }), ColorDiffuse = colorOf(col), Nickname = col .. ' era', GMNotes = 'se|era:' .. col } })
-    objs['prog:' .. pi] = spawnObjectData({ data = { Name = 'Checker_white', Transform = tf(slot(mat, 'trk0', -0.9), 0, { 0.6, 0.6 }), ColorDiffuse = colorOf(col), Nickname = col .. ' era track', GMNotes = 'se|prog:' .. col } })
     for k = 1, (p.cont or 0) do objs['cont:' .. pi .. ':' .. k] = spawnObjectData({ data = { Name = 'Chip_10', Transform = tf(slot(mat, 'trk' .. (E.TX - k), 0, 0, 0.2), 0, { 0.5, 0.5 }), ColorDiffuse = { r = 0.12, g = 0.42, b = 0.29 }, Nickname = 'control token', GMNotes = 'se|cont:' .. col } }) end
   end
-  for i, sp in ipairs({ { 'coin', 1 }, { 'coin', 5 }, { 'heart', 1 }, { 'heart', 5 } }) do
+  for i, sp in ipairs({ { 'coin', 1 }, { 'coin', 5 }, { 'heart', 1 }, { 'heart', 5 }, { 'pitcher' } }) do
     local d = pieceData(sp[1], sp[2], { x = 0, y = 0, z = 0 })
+    if sp[1] == 'pitcher' then d.CustomImage.ImageURL = IMG .. 'pitcher.png'; d.GMNotes = 'se|pitcher'; d.Nickname = 'Pitcher'; local k = (S.tileScale or 1.4) * 1.15 / 2.85; d.Transform.scaleX = k; d.Transform.scaleZ = k end
     objs['supply:' .. i] = spawnObjectData({ data = { Name = 'Infinite_Bag', Transform = tf(slot('common', 'status', -6 + (i - 1) * 2.4, 0.2, 0.3), 0, { 0.75, 0.75 }),
-      ColorDiffuse = sp[1] == 'coin' and { r = 0.89, g = 0.67, b = 0.11 } or { r = 0.85, g = 0.28, b = 0.23 }, Nickname = (sp[1] == 'coin' and 'Capital ' or 'Loyalty ') .. sp[2] .. 's', GMNotes = 'se|supply', ContainedObjects = { d } } })
+      ColorDiffuse = sp[1] == 'coin' and { r = 0.89, g = 0.67, b = 0.11 } or (sp[1] == 'pitcher' and { r = 0.96, g = 0.82, b = 0.25 } or { r = 0.85, g = 0.28, b = 0.23 }), Nickname = sp[1] == 'pitcher' and 'Pitchers' or ((sp[1] == 'coin' and 'Capital ' or 'Loyalty ') .. sp[2] .. 's'), GMNotes = 'se|supply', ContainedObjects = { d } } })
   end
   objs['bag:gold'] = spawnObjectData({ data = { Name = 'Infinite_Bag', Transform = tf(slot('common', 'status', -6.5, 0.6, 0.3), 0, { 0.8, 0.8 }), ColorDiffuse = { r = 0.89, g = 0.67, b = 0.11 }, Nickname = 'Capital tokens',
     ContainedObjects = { { Name = 'Chip_1000', ColorDiffuse = { r = 0.89, g = 0.67, b = 0.11 }, Transform = tf({ x = 0, y = 0, z = 0 }, 0, { 0.42, 0.42 }), GMNotes = 'se|imp' } } } })
