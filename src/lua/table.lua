@@ -368,6 +368,7 @@ local function cardActions()
   end
   if G.pending or G.offer or ui.scrapFor or ui.disc or ui.sel or ui.pay then return out end
   if G.choice then for i, c in each(G.choice.cards) do if not c.taken then out['choice:' .. i] = { 'Keep', 'pick_' .. i } end end return out end
+  for _, c in each(p.inf) do if G.phase == 'biz' or G.phase == 'place' then out['hinf:' .. a .. ':' .. c.u] = { 'Play', 'iplay_' .. c.u, top = true } end end -- on the card in your hand
   if G.phase == 'biz' then
     if ok(E.canDraw(G)) then out['deck:ing'] = { 'Buy 3, keep 1' .. costTxt(E.canDraw(G)), 'draw' } end
     if ok(E.canLobby(G)) then out['deck:inf'] = { 'Buy influence' .. costTxt(E.canLobby(G)), 'lobby' } end
@@ -395,7 +396,7 @@ local function cardButtons()
       o.clearButtons()
       if w then local sc = (last[key] and last[key].kind == 'tile') and { S.tileScale or 1.4, S.tileScale or 1.4 } or (last[key] and last[key].sc) or { CS, CS }; local flip = last[key] and last[key].flip
         local two = w[3] ~= nil
-        for b = 1, two and 2 or 1 do local lab = w[b * 2 - 1]; local dz = two and (b == 1 and 0.35 or -0.35) or 0
+        for b = 1, two and 2 or 1 do local lab = w[b * 2 - 1]; local dz = w.top and -1.12 or (two and (b == 1 and 0.35 or -0.35) or 0)
           o.createButton({ click_function = b == 1 and 'onCardClick' or 'onCardClick2', function_owner = Global, label = lab, position = { 0, flip and -0.3 or 0.3, dz }, rotation = flip and { 0, 0, 180 } or { 0, 0, 0 },
             width = 1500, height = 480, font_size = 220, color = (lab == 'Scrap') and { 0.85, 0.55, 0.45, 0.95 } or { 0.96, 0.82, 0.25, 0.95 }, hover_color = { 1, 0.9, 0.45, 1 }, font_color = { 0.17, 0.1, 0.08, 1 },
             scale = { 0.6 / sc[1], 1, 0.6 / sc[2] }, tooltip = lab }) end end
@@ -444,18 +445,16 @@ local function buildActions()
       B('nosel', 'Cancel', nil, 'answer') end
     return end
   if G.phase == 'biz' then
-    dialog = 'Click a card to act: buy a machine, ingredients (deck or piles) or influence (its deck), research, hire, or run one of your machines. One thing a turn.'
+    dialog = 'Click a card to act: buy a machine, ingredients (deck or piles) or influence (its deck), research, hire, or run one of your machines. Influence cards play from your hand. One thing a turn.'
     if ok(E.canBail(G)) then B('bail', 'Post bail', E.canBail(G), 'more') end
     for i, m in each(p.mach) do
       B('frun_' .. i, 'Free run: ' .. m.name, E.canRun(G, i, 'free'), 'more'); B('rerun_' .. i, 'Re-run ' .. m.name, E.canRun(G, i, 'rerun'), 'more'); B('hal_' .. i, 'HAL runs ' .. m.name, E.canRun(G, i, true), 'more') end
-    for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }, 'influence') end
     B('sell_1', 'Sell Paul 1 Acidic', E.canSell(G), 'more'); if (p.hand.sour or 0) >= 2 then B('sell_2', 'Sell Paul 2 Acidic', E.canSell(G), 'more') end
     for pi, q in each(G.players) do if pi ~= a then for k, ad in each(q.adv) do B('poach_' .. pi .. '_' .. k, 'Hire away ' .. ad.name, E.canHire(G, k, pi), 'more'); B('hit_' .. pi .. '_' .. k, 'Hit ' .. ad.name, E.canHit(G, pi, k), 'more') end end end
     B('pass', 'Pass for the rest of the market', nil, 'end')
   elseif G.phase == 'place' then
-    dialog = ui.impMode and 'Click a market you control to put a capital token on it.' or ('Click a market to place a loyalty token. You have ' .. p.loy .. ' loyalty.')
+    dialog = ui.impMode and 'Click a market you control to put a capital token on it.' or ('Click a market to place a loyalty token. You have ' .. p.loy .. ' loyalty. Influence cards play from your hand.')
     if (p.imp or 0) > 0 then B('impmode', ui.impMode and 'Back to loyalty tokens' or ('Place a capital token (' .. p.imp .. ' to place)'), nil, 'more') end
-    for _, c in each(p.inf) do B('iplay_' .. c.u, 'Play ' .. E.ICARD[c.t].name, { ok = true }, 'influence') end
     B('pass', 'Done placing', nil, 'end')
   end
 end
