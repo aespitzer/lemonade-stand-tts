@@ -635,6 +635,10 @@ end
 -- a loose coin or loyalty token for the manual modes
 local function pieceData(img, n, p)
   local k = (S.tileScale or 1.4) * 0.78 / 2.85
+  if n == nil then -- a piece without a value (the pitcher)
+    return { Name = 'Custom_Tile', Transform = tf(p, 0, { k, k }), Locked = false, GMNotes = 'se|' .. img, Nickname = 'Pitcher',
+      CustomImage = { ImageURL = IMG .. img .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = true, Stretch = true } } }
+  end
   return { Name = 'Custom_Tile', Transform = tf(p, 0, { k, k }), Locked = false, GMNotes = 'se|' .. img .. ':' .. n, Nickname = (img == 'coin' and 'Capital ' or 'Loyalty ') .. n,
     CustomImage = { ImageURL = IMG .. img .. '-' .. n .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = true, Stretch = true } } }
 end
