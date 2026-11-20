@@ -158,15 +158,15 @@ local function spawnFrom(key, data, after)
   objs[key] = o; return o
 end
 local function tileOf(key, name, p) want[key] = { kind = 'tile', card = name, p = p, rot = 0 } end
-local function token(key, img, p, d) want[key] = { kind = 'token', card = img, p = p, rot = 0, d = d or 0.8 } end
+local function token(key, img, p, d, rot) want[key] = { kind = 'token', card = img, p = p, rot = rot or 0, d = d or 0.8 } end
 -- an amount as coins or loyalty tokens: 5s then 1s, in stacks of up to five across the box
-local function pieces(prefix, img, amount, at, boxW)
+local function pieces(prefix, img, amount, at, boxW, rot)
   amount = math.max(0, math.floor(amount or 0)); local fives, ones = math.floor(amount / 5), amount % 5
   local list = {}; for i = 1, fives do list[#list + 1] = img .. '-5' end; for i = 1, ones do list[#list + 1] = img .. '-1' end
   local cols = 5; local gap = math.min(0.62, (boxW - 0.8) / (cols - 1))
   for i, im in ipairs(list) do local slotN = (i - 1) % 10; local layer = math.floor((i - 1) / 10)
     local col, row = slotN % cols, math.floor(slotN / cols)
-    token(prefix .. i, im, at(-(cols - 1) * gap / 2 + col * gap + layer * 0.08, layer * 0.1, row), 0.6) end
+    token(prefix .. i, im, at(-(cols - 1) * gap / 2 + col * gap + layer * 0.08, layer * 0.1, row), 0.6, rot) end
 end
 local function card(key, cardKey, p, opt) opt = opt or {}
   if opt.flip then cardKey = 'back:' .. cardKey; opt.flip = nil end -- face-down cards cannot show buttons in the game
@@ -179,7 +179,7 @@ local function colorOf(c) if type(c) == 'string' then local r = RGB[c] or { 1, 1
 local function spawnWanted(key, w)
   if w.kind == 'token' then
     local k = (S.tileScale or 1.4) * w.d / 2.85
-    return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, 0, { k, k }), Locked = true, GMNotes = 'se|' .. key, Nickname = w.card:find('coin') and 'Capital' or (w.card:find('heart') and 'Loyalty' or 'Pitcher'),
+    return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, w.rot, { k, k }), Locked = true, GMNotes = 'se|' .. key, Nickname = w.card:find('coin') and 'Capital' or (w.card:find('heart') and 'Loyalty' or 'Pitcher'),
       CustomImage = { ImageURL = IMG .. w.card .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = false, Stretch = true } } })
   end
   if w.kind == 'tile' then
@@ -216,7 +216,7 @@ local function apply()
       if w.kind == 'text' and last[key] and last[key].s ~= w.s and last[key].kind == 'text' and math.abs(last[key].p.x - w.p.x) < 0.01 then o.TextTool.setValue(w.s)
       elseif last[key] and (last[key].kind ~= w.kind or last[key].card ~= w.card or last[key].hand ~= w.hand or last[key].col ~= w.col) then o.destruct(); objs[key] = nil; spawnWanted(key, w) -- a different picture or colour: replace the piece
       elseif w.kind == 'card' and w.hand then -- hand cards stay where the hand puts them
-      else o.setPositionSmooth({ w.p.x, w.p.y, w.p.z }, false, true); if w.kind == 'card' then o.setRotationSmooth({ 0, (w.rot or 0) + FACE + (w.tap and 90 or 0), w.flip and 180 or 0 }, false, true) end end
+      else o.setPositionSmooth({ w.p.x, w.p.y, w.p.z }, false, true); if w.kind == 'card' or w.kind == 'token' then o.setRotationSmooth({ 0, (w.rot or 0) + FACE + (w.tap and 90 or 0), w.flip and 180 or 0 }, false, true) end end
       last[key] = w
     end
   end
@@ -313,15 +313,15 @@ local function buildWant()
     for i, t in each(p.tiles) do if CARDS['res:' .. t.id] then card('tiles:' .. pi .. ':' .. i, 'res:' .. t.id, slot(mat, 'tiles', -3.0 + i * 1.0, 0, 0.02 * i), { rot = B.rot, sc = { CS * 0.8, CS * 0.8 } }) end end
     pawn('era:' .. pi, SEATCOL[pi + 1], slot(mat, 'era' .. math.min(p.era, 12)))
     local tl = E.trackLen(p)
-    for k = 0, math.min(p.prog, tl) - 1 do token('pit:' .. pi .. ':' .. k, 'pitcher', slot(mat, 'trk' .. k, 0, 0, 0.05), 1.15) end -- a pitcher on every space filled
+    for k = 0, math.min(p.prog, tl) - 1 do token('pit:' .. pi .. ':' .. k, 'pitcher', slot(mat, 'trk' .. k, 0, 0, 0.05), 1.15, B.rot) end -- a pitcher on every space filled
     local cover = E.TX - tl; local cont = math.min(p.cont or 0, cover)
     for k = 0, cover - 1 do local sp = E.TX - 1 - k; chip('cover:' .. pi .. ':' .. k, k < cont and { 0.12, 0.42, 0.29 } or { 0.96, 0.77, 0.19 }, slot(mat, 'trk' .. sp), 0.5) end
     local hand = p.hand
     text('lab:name:' .. pi, (p.name or SEATCOL[pi + 1]) .. ' · era ' .. p.era .. (p.bot and ' (bot)' or ''), slot(mat, 'name', 0, -0.1), B.rot, 52, SEATCOL[pi + 1])
     local function boxAt(name) return function(du, dy, row) return slot(mat, name, du, -0.05 + (row or 0) * 0.62, 0.05 + dy) end end
     local bw = BOARD[mat].L.slots.cash[3]
-    pieces('cash:' .. pi .. ':', 'coin', p.cash, boxAt('cash'), bw)
-    pieces('loy:' .. pi .. ':', 'heart', p.loy, boxAt('loy'), bw)
+    pieces('cash:' .. pi .. ':', 'coin', p.cash, boxAt('cash'), bw, B.rot)
+    pieces('loy:' .. pi .. ':', 'heart', p.loy, boxAt('loy'), bw, B.rot)
     text('lab:stars:' .. pi, E.starText(p.stars), slot(mat, 'stars', 0, -0.05), B.rot, 48)
     for k = 1, math.min(p.imp or 0, 8) do local n = (p.imp or 0); local gap = math.min(0.8, (bw - 0.9) / math.max(1, n - 1)); chip('impl:' .. pi .. ':' .. k, 'gold', slot(mat, 'imp', -(math.min(n, 8) - 1) * gap / 2 + (k - 1) * gap, 0.25, 0.05), 0.42) end
     text('lab:hand:' .. pi, (hand.sweet or 0) .. '/' .. (hand.sour or 0) .. '/' .. (hand.herb or 0) .. '/' .. (hand.fizz or 0), slot(mat, 'hand', 0, -0.05), B.rot, 46)
@@ -640,20 +640,20 @@ local function newEngineGame()
   return E.newGame(jsA(list))
 end
 -- a loose coin or loyalty token for the manual modes
-local function pieceData(img, n, p)
+local function pieceData(img, n, p, rot)
   local k = (S.tileScale or 1.4) * 0.78 / 2.85
   if n == nil then -- a piece without a value (the pitcher)
-    return { Name = 'Custom_Tile', Transform = tf(p, 0, { k, k }), Locked = false, GMNotes = 'se|' .. img, Nickname = 'Pitcher',
+    return { Name = 'Custom_Tile', Transform = tf(p, rot or 0, { k, k }), Locked = false, GMNotes = 'se|' .. img, Nickname = 'Pitcher',
       CustomImage = { ImageURL = IMG .. img .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = true, Stretch = true } } }
   end
-  return { Name = 'Custom_Tile', Transform = tf(p, 0, { k, k }), Locked = false, GMNotes = 'se|' .. img .. ':' .. n, Nickname = (img == 'coin' and 'Capital ' or 'Loyalty ') .. n,
+  return { Name = 'Custom_Tile', Transform = tf(p, rot or 0, { k, k }), Locked = false, GMNotes = 'se|' .. img .. ':' .. n, Nickname = (img == 'coin' and 'Capital ' or 'Loyalty ') .. n,
     CustomImage = { ImageURL = IMG .. img .. '-' .. n .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = true, Stretch = true } } }
 end
 -- put an amount into a company's box as 5s and 1s
 local function payPieces(img, amount, col, slotName)
   local pi; for i, c in ipairs(SEATCOL) do if c == col then pi = i - 1 end end; if not pi or amount <= 0 then return end
   local mat = 'mat' .. pi; local fives, ones = math.floor(amount / 5), amount % 5; local n = 0
-  local function one(v) local du = -1.0 + (n % 4) * 0.66; local q = slot(mat, slotName, du, 0.3, 0.6 + math.floor(n / 4) * 0.15); n = n + 1; spawnObjectData({ data = pieceData(img, v, q) }) end
+  local function one(v) local du = -1.0 + (n % 4) * 0.66; local q = slot(mat, slotName, du, 0.3, 0.6 + math.floor(n / 4) * 0.15); n = n + 1; spawnObjectData({ data = pieceData(img, v, q, BOARD[mat].rot) }) end
   for i = 1, fives do one(5) end; for i = 1, ones do one(1) end
 end
 -- manual modes: the same deal as the engine's, laid out as loose pieces players move themselves
