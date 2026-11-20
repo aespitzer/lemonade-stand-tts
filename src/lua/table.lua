@@ -143,7 +143,13 @@ local function customDeck(c)
 end
 local function tf(p, roty, sc, flip) return { posX = p.x, posY = p.y, posZ = p.z, rotX = 0, rotY = (roty or 0) + FACE, rotZ = flip and 180 or 0, scaleX = sc[1], scaleY = 1, scaleZ = sc[2] } end
 local function cardData(key, cardKey, p, roty, sc, flip, locked)
-  local c = CARDS[cardKey]; if not c then error('no card ' .. tostring(cardKey)) end
+  local backFace = cardKey:sub(1, 5) == 'back:'
+  local c = CARDS[backFace and cardKey:sub(6) or cardKey]; if not c then error('no card ' .. tostring(cardKey)) end
+  if backFace then -- the back's image as the face of a card of its own
+    local sh = c.sh; local id = c.id + 50; local one = not sh.uniqueBack
+    local deck = { [id] = { FaceURL = IMG .. sh.back, BackURL = IMG .. sh.back, NumWidth = one and 1 or sh.cols, NumHeight = one and 1 or sh.rows, BackIsHidden = true, UniqueBack = false, Type = 0 } }
+    return { Name = 'CardCustom', Transform = tf(p, roty, sc, false), CardID = id * 100 + (one and 0 or c.cell), CustomDeck = deck, GMNotes = 'se|' .. key, Nickname = '', Locked = locked ~= false, Hands = true, SidewaysCard = false }
+  end
   return { Name = 'CardCustom', Transform = tf(p, roty, sc, flip), CardID = c.id * 100 + c.cell, CustomDeck = customDeck(c), GMNotes = 'se|' .. key, Nickname = '', Locked = locked ~= false, Hands = true, SidewaysCard = false }
 end
 local function spawnFrom(key, data, after)
@@ -157,12 +163,13 @@ local function token(key, img, p, d) want[key] = { kind = 'token', card = img, p
 local function pieces(prefix, img, amount, at, boxW)
   amount = math.max(0, math.floor(amount or 0)); local fives, ones = math.floor(amount / 5), amount % 5
   local list = {}; for i = 1, fives do list[#list + 1] = img .. '-5' end; for i = 1, ones do list[#list + 1] = img .. '-1' end
-  local per = 5; local stacks = math.max(1, math.ceil(#list / per)); if stacks > 4 then per = math.ceil(#list / 4); stacks = 4 end
-  local gap = math.min(0.85, (boxW - 0.9) / math.max(1, stacks - 1))
-  for i, im in ipairs(list) do local st = math.floor((i - 1) / per); local h = (i - 1) % per
-    token(prefix .. i, im, at(-(stacks - 1) * gap / 2 + st * gap, h * 0.09), 0.78) end
+  local cols = 5; local gap = math.min(0.62, (boxW - 0.8) / (cols - 1))
+  for i, im in ipairs(list) do local slotN = (i - 1) % 10; local layer = math.floor((i - 1) / 10)
+    local col, row = slotN % cols, math.floor(slotN / cols)
+    token(prefix .. i, im, at(-(cols - 1) * gap / 2 + col * gap + layer * 0.08, layer * 0.1, row), 0.6) end
 end
 local function card(key, cardKey, p, opt) opt = opt or {}
+  if opt.flip then cardKey = 'back:' .. cardKey; opt.flip = nil end -- face-down cards cannot show buttons in the game
   want[key] = { kind = 'card', card = cardKey, p = p, rot = opt.rot or 0, sc = opt.sc or { CS, CS }, flip = opt.flip, hand = opt.hand, tap = opt.tap, label = opt.label } end
 local function chip(key, col, p, sc) want[key] = { kind = 'chip', col = col, p = p, sc = sc or 0.55 } end
 local function pawn(key, col, p) want[key] = { kind = 'pawn', col = col, p = p } end
@@ -173,7 +180,7 @@ local function spawnWanted(key, w)
   if w.kind == 'token' then
     local k = (S.tileScale or 1.4) * w.d / 2.85
     return spawnFrom(key, { Name = 'Custom_Tile', Transform = tf(w.p, 0, { k, k }), Locked = true, GMNotes = 'se|' .. key, Nickname = w.card:find('coin') and 'Capital' or 'Loyalty',
-      CustomImage = { ImageURL = IMG .. w.card .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = true, Stretch = true } } })
+      CustomImage = { ImageURL = IMG .. w.card .. '.png', ImageSecondaryURL = '', ImageScalar = 1, WidthScale = 0, CustomTile = { Type = 2, Thickness = 0.1, Stackable = false, Stretch = true } } })
   end
   if w.kind == 'tile' then
     local k = S.tileScale or 1.4
@@ -311,7 +318,7 @@ local function buildWant()
     for k = 0, cover - 1 do local sp = E.TX - 1 - k; chip('cover:' .. pi .. ':' .. k, k < cont and { 0.12, 0.42, 0.29 } or { 0.96, 0.77, 0.19 }, slot(mat, 'trk' .. sp), 0.5) end
     local hand = p.hand
     text('lab:name:' .. pi, (p.name or SEATCOL[pi + 1]) .. ' · era ' .. p.era .. (p.bot and ' (bot)' or ''), slot(mat, 'name', 0, -0.1), B.rot, 52, SEATCOL[pi + 1])
-    local function boxAt(name) return function(du, dy) return slot(mat, name, du, 0.25, 0.05 + dy) end end
+    local function boxAt(name) return function(du, dy, row) return slot(mat, name, du, -0.05 + (row or 0) * 0.62, 0.05 + dy) end end
     local bw = BOARD[mat].L.slots.cash[3]
     pieces('cash:' .. pi .. ':', 'coin', p.cash, boxAt('cash'), bw)
     pieces('loy:' .. pi .. ':', 'heart', p.loy, boxAt('loy'), bw)
